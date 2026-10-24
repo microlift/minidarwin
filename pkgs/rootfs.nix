@@ -3,7 +3,8 @@
 # the shell_cmds, file_cmds, text_cmds, adv_cmds, basic_cmds, system_cmds,
 # patch_cmds and misc_cmds tools, awk, file, curl, top, nano/pico, bash, Perl,
 # zsh, bzip2, zip/unzip and ncurses' own; the libraries they link (libedit, libncurses,
-# libutil, libsbuf, libmd, libz, libbz2, ICU, libxml2, libxo, libffi); QuickJS; LibreSSL as primary TLS
+# libutil, libsbuf, libmd, libz, libbz2, ICU, libxml2, libxo, libffi); QuickJS; the
+# Swift runtime (/usr/lib/swift/libswiftCore.dylib); LibreSSL as primary TLS
 # and a complete OpenSSL 0.9.8 install under /compat/OS X/10.7 (on x86_64,
 # also GCC 4.2.1's libstdc++ under /compat/OS X/10.8); terminfo; and the
 # CA bundle curl reads, /etc/ssl/cert.pem. No dyld yet, so nothing runs.
@@ -49,6 +50,7 @@
 , quickjs
 , sqlite
 , libffi
+, libswiftCore
 , targetArch
 , libressl
 , openssl098
@@ -70,14 +72,14 @@
 
 let
   cmds = [ shellCmds fileCmds textCmds advCmds basicCmds systemCmds networkCmds patchCmds miscCmds awk file curl top nano bash darwinPerl zsh ncursesTools su sudo installer quickjs sqlite launchd open ];
-  members = [ libSystem libsystemTree2 libcxxDylib libcxxabiDylib copyfile removefile ncurses ncursesPanel terminfo certPem files libedit libutil libsbuf libmd libffi zlib bzip2 libarchive zip icu libxml2 libxo libressl openssl098 ] ++ cmds
+  members = [ libSystem libsystemTree2 libcxxDylib libcxxabiDylib copyfile removefile ncurses ncursesPanel terminfo certPem files libedit libutil libsbuf libmd libffi libswiftCore zlib bzip2 libarchive zip icu libxml2 libxo libressl openssl098 ] ++ cmds
     ++ lib.optional (libstdcxx != null) libstdcxx
     ++ lib.optional (runtimeDyld != null) runtimeDyld;
 
   # Union of passthru.allowUndefined from all members.
   declaredRaw =
     lib.foldl' (acc: p: acc // (p.allowUndefined or { })) { }
-      (lib.attrValues libsystemPass2 ++ [ libcxxDylib libcxxabiDylib copyfile removefile ncurses ncursesPanel libedit libutil libsbuf libmd libffi icu libxml2 libxo libressl openssl098 bzip2 libarchive zip ] ++ cmds
+      (lib.attrValues libsystemPass2 ++ [ libcxxDylib libcxxabiDylib copyfile removefile ncurses ncursesPanel libedit libutil libsbuf libmd libffi libswiftCore icu libxml2 libxo libressl openssl098 bzip2 libarchive zip ] ++ cmds
         ++ lib.optional (libstdcxx != null) libstdcxx);
   # A runtime tree supplies these providers, or these symbols of a provider
   # it supplies only in part. The whole-tree import check below still
@@ -166,6 +168,8 @@ mkDarwinPackage {
       /usr/share/man/man3/ffi_call.3${lib.optionalString (targetArch == "aarch64") " /usr/lib/libffi-trampolines.dylib"}; do
       [ -e "$out$f" ] || { echo "rootfs: missing libffi file $f" >&2; exit 1; }
     done
+    [ -e $out/usr/lib/swift/libswiftCore.dylib ] || {
+      echo "rootfs: missing the Swift runtime" >&2; exit 1; }
     for f in /private/etc/hosts /private/etc/services /private/etc/shells \
       /usr/share/dict/words /usr/share/misc/getopt /usr/share/man/man5/passwd.5; do
       [ -e "$out$f" ] || [ -L "$out$f" ] || { echo "rootfs: missing files-project file $f" >&2; exit 1; }

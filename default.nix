@@ -429,6 +429,25 @@ lib.makeScope pkgs.newScope (self: with self; {
     toolchain = toolchainStage3;
   };
 
+  # The Swift runtime, /usr/lib/swift/libswiftCore.dylib. Its Swift half is
+  # compiled by the host's swift-frontend (the release the source pin is);
+  # its ObjC interop compiles against headers kept out of the SDK.
+  swiftInteropHeaders = callPackage ./pkgs/swift/interop-headers.nix { };
+  libswiftCore = callPackage ./pkgs/swift/libswift-core.nix {
+    toolchain = toolchainStage4;
+    # nixpkgs builds swift-frontend with its host's LLVM backend only, so the
+    # compiler is the target arch's own build: an x86_64 runtime from an arm64
+    # machine runs the (cached) x86_64-darwin compiler under Rosetta. The
+    # other way round, an Intel machine cannot build the arm64 runtime.
+    swift =
+      let sameArch = pkgs.stdenv.hostPlatform.isAarch64 == (targetArch == "aarch64");
+      in (if sameArch then pkgs else import pkgs.path { system = "${targetArch}-darwin"; })
+        .swiftPackages.swift-unwrapped;
+  };
+  swiftLinkTest = callPackage ./pkgs/swift/swift-link-test.nix {
+    toolchain = toolchainStage4;
+  };
+
   sqlite = callPackage ./pkgs/sqlite/sqlite.nix {
     toolchain = toolchainStage3;
   };

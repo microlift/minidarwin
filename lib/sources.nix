@@ -243,6 +243,24 @@ in
     "sha256-p1YROiK6YPLLe8klHhcikjVeVWuEW9plghsKJHXj+EM=";
   ncurses = apple "ncurses" "ncurses-79"
     "sha256-Y46SCkdZsc3r7hX1Qq4y5L51RxHR3IkCoAPP6G2mBJs=";
+  # The Swift runtime (libswiftCore.dylib). Not on the macOS train: it must be
+  # the release the host compiler (nixpkgs' swift-unwrapped) is, because the
+  # stdlib is compiled with -parse-stdlib against that compiler's builtins.
+  swift = fetchFromGitHub {
+    owner = "swiftlang";
+    repo = "swift";
+    rev = "swift-5.10.1-RELEASE";
+    hash = "sha256-UK8yPwHu/sCvcuKKmBMCP9rGRJCZE3ct0ckdNw2BVbE=";
+    name = "swift-src";
+  };
+  # Headers only, for the Swift runtime's Objective-C interop: <objc/*.h>
+  # (objc4's Public headers) and <asl.h>; CoreFoundation's are `CF` above.
+  # libobjc and libsystem_asl are not built; their symbols are the runtime's
+  # declared holes.
+  objc4 = apple "objc4" "objc4-951.7"
+    "sha256-vonl+pqJurD7ozdZ8AQokvtlgKXCk+BP/vFfoyGJiUQ=";
+  syslog = apple "syslog" "syslog-406"
+    "sha256-cjuSQiYnZOe4xyw53KXBsBS8pJlPe2djjSIt43EoGmU=";
   # Third-party binary fixture, only fetched by installer tests, never a base member.
   midnightCommanderPkg = fetchurl {
     url = "https://darling-misc.s3.eu-central-1.amazonaws.com/mc-4.8.7-0.pkg";

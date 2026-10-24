@@ -45,6 +45,7 @@ nix build .#bzip2                 # libbz2, bzip2, bunzip2 and bzcat (stage 6)
 nix build .#zip                   # zip, unzip and related utilities (stage 6)
 nix build .#icu .#libxml2         # ICU 76 Unicode data/libraries; libxml2 with ICU support (stage 6)
 nix build .#quickjs               # qjs, qjsc and the static JavaScript embedding library (stage 6)
+nix build .#libswiftCore .#checks.aarch64-darwin.swiftLinkTest  # Swift 5.10.1 runtime, /usr/lib/swift (stage 6)
 nix build .#openssl098            # OpenSSL 0.9.8 under /compat/OS X/10.7 (stage 6)
 nix build .#cross.x86_64.libstdcxx  # GCC 4.2.1 libstdc++ under /compat/OS X/10.8 (x86_64 only)
 nix build .#certPem               # /etc/ssl/cert.pem from security_certificates' roots (stage 6)
@@ -76,7 +77,10 @@ $CC -isysroot $MINIDARWIN_SYSROOT hello.c -lSystem -o hello
 
 ### Cross compilation
 
-Nothing target-side is ever executed during a build, so either arch builds from either host:
+Nothing target-side is ever executed during a build, so either arch builds from either host,
+with one exception: the Swift runtime's compiler (nixpkgs' `swift-unwrapped`) only has its own
+arch's LLVM backend, so an x86_64 rootfs from an arm64 Mac runs the x86_64 compiler under
+Rosetta, and an Intel Mac cannot build the arm64 rootfs.
 
 ```bash
 nix build .#rootfs                 # native (host arch)
