@@ -13,6 +13,8 @@
 #   includes    USER_HEADER_SEARCH_PATHS, relative to the build directory
 #   libraries   built dylibs this target links, each with passthru.installName
 #               and a -l name, and passthru.headers if it has any
+#   archives    static libraries this target links, { pkg; l; }: -L/-l only,
+#               since they add no load command; passthru.headers as above
 #   cflags      other compiler settings that change the result or can fail it
 #               (C and C++ alike; the project's C standard is C-only, as
 #               GCC_C_LANGUAGE_STANDARD is)
@@ -73,6 +75,7 @@ let
         lib.filter (f: !(lib.hasAttr f notCompiled)) listed;
       yaccs = lib.filter (lib.hasSuffix ".y") srcs;
       libs = t.libraries or [ ];
+      archives = t.archives or [ ];
       needsBuilt = lib.any (lib.hasPrefix builtPrefix) srcs;
       # A target with C++ sources links with the C++ driver, so it also loads
       # libc++ -- the package's toolchain must be stage 4 for that.
@@ -92,7 +95,7 @@ let
         ${lib.escapeShellArgs (if lang == "c" then cflags else lib.filter (f: !lib.hasPrefix "-std=" f) cflags)} \
         ${lib.escapeShellArgs (map (d: "-D${d}") (t.defines or defines))} \
         ${lib.concatMapStringsSep " " (i: "-iquote $PWD/${i}") (t.includes or [ ])} \
-        ${lib.concatMapStringsSep " " (l: "-I${l.pkg.headers}/usr/include") (lib.filter (l: l.pkg ? headers) libs)} \
+        ${lib.concatMapStringsSep " " (l: "-I${l.pkg.headers}/usr/include") (lib.filter (l: l.pkg ? headers) (libs ++ archives))} \
         ${lib.escapeShellArgs (t.cflags or [ ])}'';
     in
     assert lib.assertMsg (needsBuilt -> t ? builtProducts)
@@ -119,7 +122,7 @@ let
       while IFS= read -r o; do objs+=( "$o" ); done < <(find $PWD/o/${name} -name '*.o' | sort)
       # -undefined error, except for the symbols declared absent above.
       ${linker} ${lib.escapeShellArgs ldflags} \
-        ${lib.concatMapStringsSep " " (l: "-L${l.pkg}/usr/lib -l${l.l}") libs} \
+        ${lib.concatMapStringsSep " " (l: "-L${l.pkg}/usr/lib -l${l.l}") (libs ++ archives)} \
         ${lib.concatMapStringsSep " " (s: lib.escapeShellArg "-Wl,-U,${s}") holes} \
         -o $PWD/bin/${name} "''${objs[@]}"
 

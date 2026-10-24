@@ -353,6 +353,15 @@ lib.makeScope pkgs.newScope (self: with self; {
   };
   archTest = callPackage ./pkgs/system-cmds/arch-test.nix { };
 
+  # ping, ping6, traceroute, traceroute6, ifconfig.
+  libnetworkCmdsLib = callPackage ./pkgs/network-cmds/libnetwork-cmds-lib.nix {
+    toolchain = toolchainStage3;
+  };
+  libpcapHeaders = callPackage ./pkgs/network-cmds/libpcap-headers.nix { };
+  networkCmds = callPackage ./pkgs/network-cmds/network-cmds.nix {
+    toolchain = toolchainStage3;
+  };
+
   # cmp, diff, diff3, diffstat, patch, sdiff.
   patchCmds = callPackage ./pkgs/patch-cmds/patch-cmds.nix {
     toolchain = toolchainStage3;

@@ -70,6 +70,7 @@
             basicCmds
             systemCmds
             patchCmds
+            networkCmds
             miscCmds
             awk
             file

@@ -149,6 +149,11 @@ in
     "sha256-RQve2GqS9ke9hd8kupRMgoOKalTS229asi5tBGrBmS8=";
   misc_cmds = apple "misc_cmds" "misc_cmds-45"
     "sha256-04uBS16nNrg73Fqh4Obev7nQDjTTlY4f5+pEv3i0FIU=";
+  # Headers only, for network_cmds: libpcap is not built.
+  libpcap = apple "libpcap" "libpcap-146"
+    "sha256-imKN9h6AfSyjjOjp9AX68LNXybh/pitXDM35N/3/Tls=";
+  network_cmds = apple "network_cmds" "network_cmds-741.100.2"
+    "sha256-GXtGhkmTrpYHZj5ufpx2aOMRTMjCe8/H425OWBluKeU=";
   patch_cmds = apple "patch_cmds" "patch_cmds-75"
     "sha256-XoLEVrvu9pfHPalkBQDH0IfzcX8FLkcEBmW03cq2jQY=";
   top = apple "top" "top-144"

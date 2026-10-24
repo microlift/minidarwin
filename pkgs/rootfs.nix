@@ -34,6 +34,7 @@
 , basicCmds
 , systemCmds
 , patchCmds
+, networkCmds
 , miscCmds
 , awk
 , file
@@ -68,7 +69,7 @@
 }:
 
 let
-  cmds = [ shellCmds fileCmds textCmds advCmds basicCmds systemCmds patchCmds miscCmds awk file curl top nano bash darwinPerl zsh ncursesTools su sudo installer quickjs sqlite launchd open ];
+  cmds = [ shellCmds fileCmds textCmds advCmds basicCmds systemCmds networkCmds patchCmds miscCmds awk file curl top nano bash darwinPerl zsh ncursesTools su sudo installer quickjs sqlite launchd open ];
   members = [ libSystem libsystemTree2 libcxxDylib libcxxabiDylib copyfile removefile ncurses ncursesPanel terminfo certPem files libedit libutil libsbuf libmd libffi zlib bzip2 libarchive zip icu libxml2 libxo libressl openssl098 ] ++ cmds
     ++ lib.optional (libstdcxx != null) libstdcxx
     ++ lib.optional (runtimeDyld != null) runtimeDyld;
