@@ -4,7 +4,12 @@
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
 
-  outputs = { self, nixpkgs }:
+  # The Swift compiler only. libswiftCore is compiled -parse-stdlib by the
+  # compiler whose release it is, so its pin (lib/sources.nix) follows this
+  # input's swift, not the release the rest of the tree is built on.
+  inputs.nixpkgs-swift.url = "github:NixOS/nixpkgs/nixos-unstable";
+
+  outputs = { self, nixpkgs, nixpkgs-swift }:
     let
       systems = [ "aarch64-darwin" "x86_64-darwin" ];
 
@@ -14,10 +19,15 @@
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system:
         f system nixpkgs.legacyPackages.${system});
 
-      scopeFor = pkgs: targetArch:
-        import ./default.nix { inherit pkgs targetArch; };
+      # nixpkgs-swift has no x86_64-darwin; there default.nix refuses the runtime.
+      swiftPkgsFor = pkgs:
+        if pkgs.stdenv.hostPlatform.isx86_64 then pkgs
+        else nixpkgs-swift.legacyPackages.${pkgs.stdenv.hostPlatform.system};
 
-      nativeScope = pkgs: import ./default.nix { inherit pkgs; };
+      scopeFor = pkgs: targetArch:
+        import ./default.nix { inherit pkgs targetArch; swiftPkgs = swiftPkgsFor pkgs; };
+
+      nativeScope = pkgs: import ./default.nix { inherit pkgs; swiftPkgs = swiftPkgsFor pkgs; };
     in
     {
       packages = forAllSystems (system: pkgs:

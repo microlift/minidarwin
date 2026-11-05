@@ -3,6 +3,9 @@
 , targetArch ? (if pkgs.stdenv.hostPlatform.isAarch64 then "aarch64" else "x86_64")
   # Deployment target. Must match the source release pinned in lib/sources.nix.
 , minOS ? "26.0"
+  # Where the Swift compiler comes from (flake input `nixpkgs-swift`). Its
+  # release must be the pinned stdlib's; libswiftCore asserts so.
+, swiftPkgs ? pkgs
 }:
 
 let
@@ -435,14 +438,14 @@ lib.makeScope pkgs.newScope (self: with self; {
   swiftInteropHeaders = callPackage ./pkgs/swift/interop-headers.nix { };
   libswiftCore = callPackage ./pkgs/swift/libswift-core.nix {
     toolchain = toolchainStage4;
-    # nixpkgs builds swift-frontend with its host's LLVM backend only, so the
-    # compiler is the target arch's own build: an x86_64 runtime from an arm64
-    # machine runs the (cached) x86_64-darwin compiler under Rosetta. The
-    # other way round, an Intel machine cannot build the arm64 runtime.
+    # The build machine's compiler for either target: 6.3's swift-frontend
+    # has both the AArch64 and X86 backends. nixpkgs (26.11 on) has no
+    # x86_64-darwin packages, so an Intel machine has no 6.3 compiler and
+    # cannot build the runtime (or a rootfs) at all.
     swift =
-      let sameArch = pkgs.stdenv.hostPlatform.isAarch64 == (targetArch == "aarch64");
-      in (if sameArch then pkgs else import pkgs.path { system = "${targetArch}-darwin"; })
-        .swiftPackages.swift-unwrapped;
+      if swiftPkgs.stdenv.hostPlatform.isx86_64
+      then throw "minidarwin: libswiftCore needs nixpkgs-swift's Swift compiler, which has no x86_64-darwin build; build on an arm64 Mac (either targetArch)"
+      else swiftPkgs.swiftPackages.swift;
   };
   swiftLinkTest = callPackage ./pkgs/swift/swift-link-test.nix {
     toolchain = toolchainStage4;

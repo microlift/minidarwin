@@ -244,13 +244,14 @@ in
   ncurses = apple "ncurses" "ncurses-79"
     "sha256-Y46SCkdZsc3r7hX1Qq4y5L51RxHR3IkCoAPP6G2mBJs=";
   # The Swift runtime (libswiftCore.dylib). Not on the macOS train: it must be
-  # the release the host compiler (nixpkgs' swift-unwrapped) is, because the
-  # stdlib is compiled with -parse-stdlib against that compiler's builtins.
+  # the release the host compiler (the `nixpkgs-swift` flake input's swift) is,
+  # because the stdlib is compiled with -parse-stdlib against that compiler's
+  # builtins. default.nix asserts the two agree.
   swift = fetchFromGitHub {
     owner = "swiftlang";
     repo = "swift";
-    rev = "swift-5.10.1-RELEASE";
-    hash = "sha256-UK8yPwHu/sCvcuKKmBMCP9rGRJCZE3ct0ckdNw2BVbE=";
+    rev = "swift-6.3.3-RELEASE";
+    hash = "sha256-7/jT/U0sOsr4iWnCluyUWjnD/XH5CnPyAG9EQ+Nq+tI=";
     name = "swift-src";
   };
   # Headers only, for the Swift runtime's Objective-C interop: <objc/*.h>

@@ -1,11 +1,12 @@
-# libswiftCore.dylib's sources, as stdlib's CMake (swift-5.10.1-RELEASE) lists
+# libswiftCore.dylib's sources, as stdlib's CMake (swift-6.3.3-RELEASE) lists
 # them for macosx in a Release, ObjC-interop configuration with
 # SWIFT_ENABLE_BACKTRACING on: one attr per object library swiftCore
-# incorporates, in CMake's order, and the Swift module's files in compile
+# incorporates, in link order, and the Swift module's files in compile
 # order (CMakeLists notes ORDER DEPENDENCYs; gyb outputs last). `$(GYB)/` is
-# the build's gyb output directory. Taken from the command lines of a
-# configure-only run of swift's own CMakeLists.txt; arm64 and x86_64 list the
-# same files.
+# the build's gyb output directory; a swiftGyb entry without .gyb is a plain
+# file CMake runs through gyb anyway. Taken from the build.ninja of a
+# configure-only run of swift's own CMakeLists.txt (nixpkgs' stdlib
+# derivation, arm64).
 {
   swift = [
     "Algorithm.swift"
@@ -49,14 +50,15 @@
     "DictionaryCasting.swift"
     "DictionaryStorage.swift"
     "DictionaryVariant.swift"
+    "DiscontiguousSlice.swift"
     "DropWhile.swift"
     "Dump.swift"
     "EmptyCollection.swift"
+    "EnumeratedSequence.swift"
     "Equatable.swift"
     "ErrorType.swift"
     "ExistentialCollection.swift"
     "Filter.swift"
-    "FixedArray.swift"
     "FlatMap.swift"
     "Flatten.swift"
     "FloatingPoint.swift"
@@ -67,6 +69,8 @@
     "HashTable.swift"
     "Identifiable.swift"
     "Indices.swift"
+    "InlineArray.swift"
+    "_InlineArray.swift"
     "InputStream.swift"
     "IntegerParsing.swift"
     "Integers.swift"
@@ -104,6 +108,8 @@
     "RandomAccessCollection.swift"
     "Range.swift"
     "RangeReplaceableCollection.swift"
+    "RangeSet.swift"
+    "RangeSetRanges.swift"
     "ReflectionMirror.swift"
     "Repeat.swift"
     "REPL.swift"
@@ -127,6 +133,12 @@
     "Slice.swift"
     "SmallString.swift"
     "Sort.swift"
+    "Span/MutableRawSpan.swift"
+    "Span/MutableSpan.swift"
+    "Span/OutputRawSpan.swift"
+    "Span/OutputSpan.swift"
+    "Span/RawSpan.swift"
+    "Span/Span.swift"
     "StaticString.swift"
     "StaticPrint.swift"
     "Stride.swift"
@@ -180,6 +192,13 @@
     "UnsafeRawPointer.swift"
     "UTFEncoding.swift"
     "UTF8.swift"
+    "UTF8EncodingError.swift"
+    "UTF8Span.swift"
+    "UTF8SpanBits.swift"
+    "UTF8SpanComparisons.swift"
+    "UTF8SpanFundamentals.swift"
+    "UTF8SpanInternalHelpers.swift"
+    "UTF8SpanIterators.swift"
     "UTF16.swift"
     "UTF32.swift"
     "Unicode.swift"
@@ -195,30 +214,37 @@
     "DurationProtocol.swift"
     "FloatingPointRandom.swift"
     "Instant.swift"
+    "Int128.swift"
     "Mirror.swift"
     "PlaygroundDisplay.swift"
+    "SwiftifyImport.swift"
     "CommandLine.swift"
     "SliceBuffer.swift"
     "StaticBigInt.swift"
+    "UInt128.swift"
     "UnfoldSequence.swift"
     "UnsafeBufferPointerSlice.swift"
     "VarArgs.swift"
     "Zip.swift"
     "SIMDVector.swift"
+    "ObjectIdentifier+DebugDescription.swift"
   ];
   swiftGyb = [
     "AtomicInt.swift.gyb"
     "FloatingPointParsing.swift.gyb"
+    "FloatingPointToString.swift"
     "FloatingPointTypes.swift.gyb"
     "IntegerTypes.swift.gyb"
+    "LegacyInt128.swift.gyb"
     "UnsafeBufferPointer.swift.gyb"
     "UnsafeRawBufferPointer.swift.gyb"
-    "Int128.swift.gyb"
     "Tuple.swift.gyb"
-    "SIMDConcreteOperations.swift.gyb"
+    "SIMDIntegerConcreteOperations.swift.gyb"
+    "SIMDFloatConcreteOperations.swift.gyb"
+    "SIMDMaskConcreteOperations.swift.gyb"
     "SIMDVectorTypes.swift.gyb"
   ];
-  swiftRuntime = [
+  swiftRuntimeCore = [
     "stdlib/public/CompatibilityOverride/CompatibilityOverride.cpp"
     "stdlib/public/runtime/AnyHashableSupport.cpp"
     "stdlib/public/runtime/Array.cpp"
@@ -235,11 +261,13 @@
     "stdlib/public/runtime/ErrorObjectNative.cpp"
     "stdlib/public/runtime/Errors.cpp"
     "stdlib/public/runtime/ErrorDefaultImpls.cpp"
+    "stdlib/public/runtime/Exception.cpp"
     "stdlib/public/runtime/Exclusivity.cpp"
     "stdlib/public/runtime/ExistentialContainer.cpp"
     "stdlib/public/runtime/Float16Support.cpp"
     "stdlib/public/runtime/FoundationSupport.cpp"
     "stdlib/public/runtime/FunctionReplacement.cpp"
+    "stdlib/public/runtime/GenericMetadataBuilder.cpp"
     "stdlib/public/runtime/Heap.cpp"
     "stdlib/public/runtime/HeapObject.cpp"
     "stdlib/public/runtime/ImageInspectionCommon.cpp"
@@ -251,6 +279,7 @@
     "stdlib/public/runtime/SymbolInfo.cpp"
     "stdlib/public/runtime/KeyPaths.cpp"
     "stdlib/public/runtime/KnownMetadata.cpp"
+    "stdlib/public/runtime/LibPrespecialized.cpp"
     "stdlib/public/runtime/Metadata.cpp"
     "stdlib/public/runtime/MetadataLookup.cpp"
     "stdlib/public/runtime/Numeric.cpp"
@@ -261,7 +290,6 @@
     "stdlib/public/runtime/RefCount.cpp"
     "stdlib/public/runtime/ReflectionMirror.cpp"
     "stdlib/public/runtime/RuntimeInvocationsTracking.cpp"
-    "stdlib/public/runtime/SwiftDtoa.cpp"
     "stdlib/public/runtime/SwiftTLSContext.cpp"
     "stdlib/public/runtime/ThreadingError.cpp"
     "stdlib/public/runtime/Tracing.cpp"
@@ -307,6 +335,7 @@
     "stdlib/public/stubs/ThreadLocalStorage.cpp"
     "stdlib/public/stubs/MathStubs.cpp"
     "stdlib/public/stubs/Unicode/UnicodeData.cpp"
+    "stdlib/public/stubs/Unicode/UnicodeEmoji.cpp"
     "stdlib/public/stubs/Unicode/UnicodeGrapheme.cpp"
     "stdlib/public/stubs/Unicode/UnicodeNormalization.cpp"
     "stdlib/public/stubs/Unicode/UnicodeScalarProps.cpp"

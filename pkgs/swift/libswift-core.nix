@@ -1,14 +1,15 @@
 # Stage 6: /usr/lib/swift/libswiftCore.dylib -- the Swift runtime and
-# standard library, swift-5.10.1-RELEASE, as stdlib's CMake builds target
+# standard library, swift-6.3.3-RELEASE, as stdlib's CMake builds target
 # swiftCore for macosx (Release, Objective-C interop, library evolution).
 #
 # Two halves, as in CMake: the Swift module (every stdlib/public/core file,
 # one whole-module -parse-stdlib compile into Swift.o) and the object
 # libraries swiftCore incorporates (runtime, LLVMSupport, Demangling, stubs,
 # Threading, CommandLineSupport), C++ and Objective-C++. The Swift half is
-# compiled by the host's swift-frontend (nixpkgs' swift-unwrapped, the same
-# release: -parse-stdlib code is written against that compiler's builtins),
-# against our sysroot; the C/C++ half and the link are toolchainStage4's.
+# compiled by the host's swift-frontend (the `nixpkgs-swift` input's swift,
+# the same release: -parse-stdlib code is written against that compiler's
+# builtins, so no other release's compiler can build it), against our
+# sysroot; the C/C++ half and the link are toolchainStage4's.
 #
 # The Objective-C interop is Apple's (SWIFT_OBJC_INTEROP=1): Swift classes are
 # ObjC classes, so this is the dylib a macOS Swift binary expects. libobjc,
@@ -28,7 +29,8 @@
 }:
 
 let
-  version = "5.10.1";
+  version = "6.3.3";
+  versionParts = lib.splitVersion version;
   srcs = import ./swift-core-sources.nix;
   arch = toolchain.machoArch;
   target = "${arch}-apple-macosx${minOS}";
@@ -53,7 +55,7 @@ let
   # own clang headers, and SwiftShims with the parent module map.
   resourceDir = ''
     mkdir -p rd/shims
-    ln -s ${swift.lib}/lib/swift/clang rd/clang
+    ln -s ${swift}/lib/swift/clang rd/clang
     cp ${sources.swift}/stdlib/public/SwiftShims/swift/shims/*.h \
        ${sources.swift}/stdlib/public/SwiftShims/swift/shims/module.modulemap rd/shims/
     cp ${sources.swift}/stdlib/public/SwiftShims/swift/shims/parent.modulemap rd/module.modulemap
@@ -65,8 +67,8 @@ let
 
   # swiftCore's SWIFT_COMPILE_FLAGS for macosx, from CMake's command line.
   # Availability macros are added from utils/availability-macros.def.
+  # Without the mode (-c / -emit-module): CMake runs both, separately.
   swiftFlags = [
-    "-c"
     "-sdk"
     "${toolchain.sysroot}"
     "-target"
@@ -91,6 +93,8 @@ let
     "-Xcc"
     "-DSWIFT_STDLIB_HAS_ENVIRON"
     "-D"
+    "SWIFT_CONCURRENCY_USES_DISPATCH"
+    "-D"
     "SWIFT_STDLIB_OVERRIDABLE_RETAIN_RELEASE"
     "-D"
     "SWIFT_THREADING_DARWIN"
@@ -114,27 +118,58 @@ let
     "${sources.swift}/stdlib/public/core/GroupInfo.json"
     "-swift-version"
     "5"
+    "-Xfrontend"
+    "-empty-abi-descriptor"
     "-runtime-compatibility-version"
     "none"
     "-disable-autolinking-runtime-compatibility-dynamic-replacements"
     "-Xfrontend"
     "-disable-autolinking-runtime-compatibility-concurrency"
-    "-warn-swift3-objc-inference-complete"
+  ]
+  # SWIFT_STANDARD_LIBRARY_SWIFT_FLAGS' language features, then core's own.
+  ++ lib.concatMap (f: [ "-enable-experimental-feature" f ]) [
+    "NoncopyableGenerics2"
+    "SuppressedAssociatedTypes"
+    "SE427NoInferenceOnExtension"
+    "NonescapableTypes"
+    "LifetimeDependence"
+    "InoutLifetimeDependence"
+    "LifetimeDependenceMutableAccessors"
+  ]
+  ++ [
+    "-enable-upcoming-feature"
+    "MemberImportVisibility"
     "-Xllvm"
     "-sil-inline-generics"
     "-Xllvm"
     "-sil-partial-specialization"
     "-Xfrontend"
     "-enable-experimental-concise-pound-file"
-    "-enable-experimental-feature"
+  ]
+  ++ lib.concatMap (f: [ "-enable-experimental-feature" f ]) [
     "Macros"
-    "-enable-experimental-feature"
     "FreestandingMacros"
+    "Extern"
+    "BitwiseCopyable"
+    "ValueGenerics"
+    "AddressableParameters"
+    "AddressableTypes"
+    "AllowUnsafeAttribute"
+  ]
+  ++ [
+    "-strict-memory-safety"
+    # The compiler's own macro plugins (libSwiftMacros: @DebugDescription,
+    # which ObjectIdentifier+DebugDescription.swift uses). Host-world code,
+    # run by the compiler; nothing of it reaches Swift.o but the expansion.
+    "-plugin-path"
+    "${swift}/lib/swift/host/plugins"
+    "-Xfrontend"
+    "-previous-module-installname-map-file"
+    "-Xfrontend"
+    "${sources.swift}/stdlib/public/core/PreviousModuleInstallName.json"
     "-Xcc"
     "-DswiftCore_EXPORTS"
     "-warn-implicit-overrides"
-    "-Xfrontend"
-    "-enable-ossa-modules"
     "-Xfrontend"
     "-enable-lexical-lifetimes=false"
     "-Xfrontend"
@@ -170,21 +205,34 @@ let
       ${gyb "stdlib/public/core" srcs.swiftGyb}
       ${resourceDir}
 
+      # Each SwiftStdlib x.y also defines StdlibDeploymentTarget x.y, with
+      # SWIFT_STDLIB_ENABLE_STRICT_AVAILABILITY's value: the same versions.
       avail=()
       while IFS= read -r m; do
         avail+=( -Xfrontend -define-availability -Xfrontend "$m" )
+        case $m in
+          "SwiftStdlib "*)
+            avail+=( -Xfrontend -define-availability -Xfrontend "StdlibDeploymentTarget ''${m#SwiftStdlib }" ) ;;
+        esac
       done < <(grep -v '^#' ${sources.swift}/utils/availability-macros.def | grep .)
       [ "''${#avail[@]}" -gt 0 ] || { echo "libswiftCore: no availability macros" >&2; exit 1; }
 
       files=( ${lib.concatMapStringsSep " " (f: "${sources.swift}/stdlib/public/core/${f}") srcs.swift}
               ${lib.concatMapStringsSep " " (f: "gyb/${lib.removeSuffix ".gyb" f}") srcs.swiftGyb} )
 
+      # Two invocations, as CMake's: swift-driver splits `-c -emit-module-path`
+      # into a compile job and an emit-module job, and only the first gets
+      # -parse-stdlib's -disable-objc-attr-requires-foundation-module.
+      common=( ${lib.escapeShellArgs swiftFlags} "''${avail[@]}"
+               -module-cache-path $NIX_BUILD_TOP/module-cache )
+      m=Swift.swiftmodule/${arch}-apple-macos
       mkdir -p Swift.swiftmodule
-      swiftc ${lib.escapeShellArgs swiftFlags} "''${avail[@]}" \
-        -module-cache-path $NIX_BUILD_TOP/module-cache \
-        -emit-module -emit-module-path Swift.swiftmodule/${arch}-apple-macos.swiftmodule \
-        -avoid-emit-module-source-info \
-        -o Swift.o "''${files[@]}"
+      swiftc -emit-module -o $m.swiftmodule -avoid-emit-module-source-info \
+        "''${common[@]}" \
+        -emit-module-interface-path $m.swiftinterface \
+        -emit-private-module-interface-path $m.private.swiftinterface \
+        "''${files[@]}"
+      swiftc -c "''${common[@]}" -o Swift.o "''${files[@]}"
       runHook postBuild
     '';
 
@@ -240,6 +288,7 @@ let
     "-DSWIFT_STDLIB_HAS_STDIN"
     "-DSWIFT_STDLIB_HAS_ENVIRON"
     "-DSWIFT_STDLIB_HAS_LOCALE"
+    "-DSWIFT_CONCURRENCY_USES_DISPATCH"
     "-DSWIFT_THREADING_DARWIN"
     "-DSWIFT_RUNTIME_OS_VERSIONING"
     "-DSWIFT_STDLIB_SHORT_MANGLING_LOOKUPS"
@@ -272,10 +321,11 @@ let
     "-Wdelete-non-virtual-dtor"
     "-Wsuggest-override"
     "-Werror=switch"
-    "-Wdocumentation"
     "-Wunreachable-code"
     "-Woverloaded-virtual"
     "-Werror=c++98-compat-extra-semi"
+    "-fsized-deallocation"
+    "-Wno-nested-anon-types"
     "-DOBJC_OLD_DISPATCH_PROTOTYPES=0"
   ];
 
@@ -283,16 +333,15 @@ let
   runtimeWarnings = [
     "-Wformat-nonliteral"
     "-Werror=format-nonliteral"
-    # Still reported, but not fatal: clang 21 counts Metadata.cpp's
-    # deliberate __attribute__((constructor)) as one; 5.10's clang did not.
     "-Wglobal-constructors"
+    "-Werror=global-constructors"
     "-Wexit-time-destructors"
     "-Werror=exit-time-destructors"
   ];
 
   # Per object library: its source dir first, as CMake's include order has it.
   groups = {
-    swiftRuntime = {
+    swiftRuntimeCore = {
       dir = "stdlib/public/runtime";
       flags = runtimeWarnings ++ [
         "-DSWIFT_HAVE_CRASHREPORTERCLIENT=1"
@@ -306,7 +355,11 @@ let
     swiftLLVMSupport = { dir = "stdlib/public/LLVMSupport"; flags = [ ]; };
     swiftDemangling = {
       dir = "stdlib/public";
-      flags = [ "-DSWIFT_SUPPORT_OLD_MANGLING=1" "-DswiftCore_EXPORTS" ];
+      flags = [
+        "-DswiftCore_EXPORTS"
+        "-DSWIFT_HAVE_CRASHREPORTERCLIENT=1"
+        "-DSWIFT_SUPPORT_OLD_MANGLING=1"
+      ];
     };
     swiftStdlibStubs = {
       dir = "stdlib/public/stubs";
@@ -338,6 +391,7 @@ let
       "_class_conformsToProtocol"
       "_class_copyIvarList"
       "_class_createInstance"
+      "_class_getClassMethod"
       "_class_getInstanceSize"
       "_class_getMethodImplementation"
       "_class_getName"
@@ -346,6 +400,7 @@ let
       "_class_respondsToSelector"
       "_class_setSuperclass"
       "_ivar_getOffset"
+      "_method_getImplementation"
       "_objc_addLoadImageFunc"
       "_objc_alloc_init"
       "_objc_autorelease"
@@ -354,6 +409,7 @@ let
       "_objc_copyWeak"
       "_objc_destroyWeak"
       "_objc_destructInstance"
+      "_objc_getAssociatedObject"
       "_objc_getClass"
       "_objc_getProtocol"
       "_objc_initWeak"
@@ -367,10 +423,13 @@ let
       "_objc_release"
       "_objc_retain"
       "_objc_retainAutoreleasedReturnValue"
+      "_objc_setAssociatedObject"
       "_objc_setHook_getClass"
       "_objc_setHook_getImageName"
       "_objc_setHook_lazyClassNamer"
       "_objc_storeWeak"
+      "_objc_sync_enter"
+      "_objc_sync_exit"
       "_object_dispose"
       "_object_getClass"
       "_object_setClass"
@@ -381,15 +440,21 @@ let
       (_: "objc")
     # libdyld's, and dyld_priv.h's protocol-conformance and shared-cache queries.
     // lib.genAttrs [
+      "___progname"
       "__dyld_find_foreign_type_protocol_conformance"
       "__dyld_find_foreign_type_protocol_conformance_on_disk"
+      "__dyld_find_pointer_hash_table_entry"
       "__dyld_find_protocol_conformance"
       "__dyld_find_protocol_conformance_on_disk"
       "__dyld_get_shared_cache_range"
+      "__dyld_get_swift_prespecialized_data"
       "__dyld_has_preoptimized_swift_protocol_conformances"
       "__dyld_is_objc_constant"
+      "__dyld_is_preoptimized_objc_image_loaded"
       "__dyld_swift_optimizations_version"
       "_dladdr"
+      "_dlerror"
+      "_dlopen"
       "_dlsym"
       "_dyld_image_path_containing_address"
       "_dyld_program_sdk_at_least"
@@ -458,6 +523,11 @@ let
   installName = "/usr/lib/swift/libswiftCore.dylib";
 in
 
+# The stdlib is -parse-stdlib code against its own compiler's builtins: a
+# compiler of another release cannot build it (default.nix's swiftPkgs).
+assert lib.assertMsg (lib.getVersion swift == version)
+  "libswiftCore: stdlib source is ${version}, but the compiler is ${lib.getVersion swift}";
+
 mkDarwinPackage {
   pname = "libswiftCore";
   inherit version toolchain;
@@ -480,11 +550,10 @@ mkDarwinPackage {
 
     # include/swift/Runtime/CMakeConfig.h.in, as configure_file renders it.
     mkdir -p gen/include/swift/Runtime
-    sed -e 's/^#cmakedefine01 \(.*\)/#define \1 0/' \
-        -e 's/^#cmakedefine SWIFT_VERSION_MAJOR .*/#define SWIFT_VERSION_MAJOR "5"/' \
-        -e 's/^#cmakedefine SWIFT_VERSION_MINOR .*/#define SWIFT_VERSION_MINOR "10"/' \
+    sed -e 's/@SWIFT_VERSION_MAJOR@/${lib.elemAt versionParts 0}/' \
+        -e 's/@SWIFT_VERSION_MINOR@/${lib.elemAt versionParts 1}/' \
         include/swift/Runtime/CMakeConfig.h.in > gen/include/swift/Runtime/CMakeConfig.h
-    ! grep -q cmakedefine gen/include/swift/Runtime/CMakeConfig.h
+    ! grep -q '@\|cmakedefine' gen/include/swift/Runtime/CMakeConfig.h
 
     # stdlib/Info.plist.in, for the __TEXT,__info_plist section.
     sed -e 's/@PLIST_INFO_UTI@/com.apple.dt.runtime.swiftCore/' \
