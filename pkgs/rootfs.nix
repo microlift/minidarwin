@@ -187,6 +187,17 @@ mkDarwinPackage {
       /private/etc/pam.d/su /private/etc/pam.d/sudo /private/etc/sudoers; do
       [ -e "$out$f" ] || { echo "rootfs: missing authentication file $f" >&2; exit 1; }
     done
+    # Every command malt's scripts/install.sh runs on its release path
+    # (cosign is optional with MALT_ALLOW_UNVERIFIED=1, and zig/git are only
+    # for its build-from-source fallback; none of the three is Apple's).
+    for f in /usr/bin/env /bin/bash /usr/bin/uname /usr/bin/id /usr/bin/dirname \
+      /usr/bin/basename /usr/bin/curl /usr/bin/grep /usr/bin/head /usr/bin/sed \
+      /bin/sleep /usr/bin/mktemp /bin/rm /usr/bin/awk /usr/bin/shasum \
+      /usr/bin/tar /usr/bin/find /bin/mkdir /usr/sbin/chown /usr/bin/stat \
+      /usr/bin/install /bin/ln /usr/bin/sudo /usr/bin/perl \
+      /usr/lib/perl5/5.34/Digest/SHA.pm; do
+      [ -e "$out$f" ] || { echo "rootfs: missing malt installer dependency $f" >&2; exit 1; }
+    done
     for f in /usr/lib/libcrypto.0.9.8.dylib /usr/lib/libssl.0.9.8.dylib \
       /usr/local/openssl-0.9.8 /System/Library/OpenSSL; do
       [ ! -e "$out$f" ] || { echo "rootfs: legacy OpenSSL escaped compatibility prefix: $f" >&2; exit 1; }

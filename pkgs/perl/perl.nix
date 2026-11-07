@@ -115,6 +115,28 @@ mkDarwinPackage {
         path.write_text(contents)
     PY
     install -Dm644 ../../fix/perl.1 $out/usr/share/man/man1/perl.1
+
+    # shasum, what utils/shasum.PL extracts: a shell-safe header from the
+    # target's config.sh, then cpan/Digest-SHA/shasum verbatim. Done here
+    # rather than by running the .PL: the host perl cannot load the target's
+    # Config.pm, and miniperl is a target binary. Digest::SHA and everything
+    # the script uses are static extensions of the interpreter above.
+    # Apple's mergebin hardlinks shasum5.34 to it; the rootfs has no
+    # hardlinks, so it is a relative symlink.
+    cfg() { sed -n "s/^$1='\(.*\)'\$/\1/p" config.sh; }
+    startperl=$(cfg startperl) perlpath=$(cfg perlpath)
+    [ "$startperl" = "#!/usr/bin/perl" ] && [ "$perlpath" = /usr/bin/perl ] || {
+      echo "perl: unexpected startperl/perlpath: $startperl $perlpath" >&2; exit 1; }
+    [ "$(cfg eunicefix)" = ":" ] || { echo "perl: eunicefix is not ':'" >&2; exit 1; }
+    {
+      printf '%s\n' "$startperl"
+      printf '    eval '"'"'exec %s -S $0 ''${1+"$@"}'"'"'\n' "$perlpath"
+      printf '\tif 0; # ^ Run only under a shell\n'
+      cat cpan/Digest-SHA/shasum
+    } > shasum
+    install -Dm755 shasum $out/usr/bin/shasum
+    ln -s shasum $out/usr/bin/shasum5.34
+
     md_verify_pure $out/usr/bin/perl
     md_verify_signed $out/usr/bin/perl
     runHook postInstall
