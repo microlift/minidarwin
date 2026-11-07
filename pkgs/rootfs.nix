@@ -4,7 +4,7 @@
 # patch_cmds and misc_cmds tools, awk, file, curl, top, nano/pico, bash, Perl,
 # zsh, bzip2, zip/unzip and ncurses' own; the libraries they link (libedit, libncurses,
 # libutil, libsbuf, libmd, libz, libbz2, ICU, libxml2, libxo, libffi); QuickJS; the
-# Swift runtime (/usr/lib/swift/libswiftCore.dylib); LibreSSL as primary TLS
+# Swift runtime (/usr/lib/swift/libswiftCore.dylib); Mesa's GLU; LibreSSL as primary TLS
 # and a complete OpenSSL 0.9.8 install under /compat/OS X/10.7 (on x86_64,
 # also GCC 4.2.1's libstdc++ under /compat/OS X/10.8); terminfo; and the
 # CA bundle curl reads, /etc/ssl/cert.pem. No dyld yet, so nothing runs.
@@ -49,6 +49,7 @@
 , libxo
 , quickjs
 , sqlite
+, libglu
 , libffi
 , libswiftCore
 , targetArch
@@ -72,14 +73,14 @@
 
 let
   cmds = [ shellCmds fileCmds textCmds advCmds basicCmds systemCmds networkCmds patchCmds miscCmds awk file curl top nano bash darwinPerl zsh ncursesTools su sudo installer quickjs sqlite launchd open ];
-  members = [ libSystem libsystemTree2 libcxxDylib libcxxabiDylib copyfile removefile ncurses ncursesPanel terminfo certPem files libedit libutil libsbuf libmd libffi libswiftCore zlib bzip2 libarchive zip icu libxml2 libxo libressl openssl098 ] ++ cmds
+  members = [ libSystem libsystemTree2 libcxxDylib libcxxabiDylib copyfile removefile ncurses ncursesPanel terminfo certPem files libedit libutil libsbuf libmd libffi libswiftCore zlib bzip2 libarchive zip icu libxml2 libxo libressl openssl098 libglu ] ++ cmds
     ++ lib.optional (libstdcxx != null) libstdcxx
     ++ lib.optional (runtimeDyld != null) runtimeDyld;
 
   # Union of passthru.allowUndefined from all members.
   declaredRaw =
     lib.foldl' (acc: p: acc // (p.allowUndefined or { })) { }
-      (lib.attrValues libsystemPass2 ++ [ libcxxDylib libcxxabiDylib copyfile removefile ncurses ncursesPanel libedit libutil libsbuf libmd libffi libswiftCore icu libxml2 libxo libressl openssl098 bzip2 libarchive zip ] ++ cmds
+      (lib.attrValues libsystemPass2 ++ [ libcxxDylib libcxxabiDylib copyfile removefile ncurses ncursesPanel libedit libutil libsbuf libmd libffi libswiftCore icu libxml2 libxo libressl openssl098 libglu bzip2 libarchive zip ] ++ cmds
         ++ lib.optional (libstdcxx != null) libstdcxx);
   # A runtime tree supplies these providers, or these symbols of a provider
   # it supplies only in part. The whole-tree import check below still

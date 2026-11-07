@@ -210,6 +210,19 @@ in
     url = "https://sqlite.org/2026/sqlite-autoconf-3540100.tar.gz";
     hash = "sha256-km740+q5P79uBgEZASc+7AdrJVlKThza3VDJh/T21k4=";
   };
+  # Mesa's GLU (libGLU.1.dylib). Apple's GLU is closed, inside OpenGL.framework;
+  # this is Mesa's standalone release, the latest there is.
+  glu = fetchurl {
+    url = "https://archive.mesa3d.org/glu/glu-9.0.3.tar.xz";
+    hash = "sha256-vUP+EvN0sRkusV/iDkX/RWubwmq1fw7ukZ+Wyg+KMw8=";
+  };
+  # Headers only, for <GL/gl.h> (and the glext.h/khrplatform.h it includes),
+  # which <GL/glu.h> and GLU's sources include. Nothing is compiled from it,
+  # and no libGL is built: GLU's gl* calls are declared holes.
+  mesa = fetchurl {
+    url = "https://archive.mesa3d.org/mesa-26.1.5.tar.xz";
+    hash = "sha256-eeQhx84YzZ55C4N1kgMld58QeYYwvzDgsi8aIchhcSI=";
+  };
   # Apple does not publish its LibreSSL source. Use the portable upstream release.
   libressl = fetchurl {
     url = "https://ftp.openbsd.org/pub/OpenBSD/LibreSSL/libressl-4.3.2.tar.gz";

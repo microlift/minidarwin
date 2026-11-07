@@ -96,6 +96,7 @@
             libffi
             libswiftCore
             sqlite
+            libglu
             libressl
             openssl098
             nano

@@ -455,6 +455,11 @@ lib.makeScope pkgs.newScope (self: with self; {
     toolchain = toolchainStage3;
   };
 
+  # Mesa's GLU, /usr/lib/libGLU.1.dylib. C++ (libnurbs), so stage 4.
+  libglu = callPackage ./pkgs/glu/libglu.nix {
+    toolchain = toolchainStage4;
+  };
+
   quickjsBuildRoot = callPackage ./pkgs/quickjs/build-root.nix { };
   quickjs = callPackage ./pkgs/quickjs/quickjs.nix {
     toolchain = toolchainStage3;
