@@ -17,8 +17,19 @@
 #     Acknowledgements and LaunchServices preference blobs, the iOS/embedded
 #     variants, and `find.codes`-style files Apple creates from /dev/null that
 #     are made here as empty files.
-{ lib, stdenvNoCC, sources }:
+{ lib, stdenvNoCC, writeText, sources }:
 
+let
+  # macOS ships /etc/fstab as just this header (it is not in the files project;
+  # vifs(8) edits it). No entries: nothing is mounted from it.
+  fstab = writeText "fstab" ''
+    #
+    # Warning - this file should only be modified with vifs(8)
+    #
+    # Failure to do so is unsupported and may be destructive.
+    #
+  '';
+in
 stdenvNoCC.mkDerivation {
   pname = "files";
   version = lib.removePrefix "files-" sources.files.rev;
@@ -41,6 +52,8 @@ stdenvNoCC.mkDerivation {
     for f in find.codes hosts.equiv rmtab xtab; do
       install -Dm644 /dev/null $etc/$f
     done
+
+    install -Dm644 ${fstab} $etc/fstab
 
     share=$out/usr/share
     install -Dm644 usr/share/firmlinks $share/firmlinks

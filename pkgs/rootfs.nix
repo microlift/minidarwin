@@ -171,7 +171,7 @@ mkDarwinPackage {
     done
     [ -e $out/usr/lib/swift/libswiftCore.dylib ] || {
       echo "rootfs: missing the Swift runtime" >&2; exit 1; }
-    for f in /private/etc/hosts /private/etc/services /private/etc/shells \
+    for f in /private/etc/fstab /private/etc/hosts /private/etc/services /private/etc/shells \
       /usr/share/dict/words /usr/share/misc/getopt /usr/share/man/man5/passwd.5; do
       [ -e "$out$f" ] || [ -L "$out$f" ] || { echo "rootfs: missing files-project file $f" >&2; exit 1; }
     done
