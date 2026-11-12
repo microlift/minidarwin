@@ -57,6 +57,8 @@ nix build .#launchd .#launchdTest   # C++ init/supervisor and isolated host test
 nix build .#open .#openTest         # /usr/bin/open and its on-demand default daemon, opend
 nix build .#rootfs                 # assembled tree at real paths (/usr/lib/system, etc.)
 nix build .#rootfsRelease          # that tree as a release: tarball, manifest, spec, bundle
+nix build .#minidarwinSdk          # headers + .tbd stubs for building against that tree elsewhere
+nix build .#sdkRelease             # the SDK as a release, in the same format
 ```
 
 Direct `nix-build` also works: `nix-build -A sdk`, `nix-build -A libSystem` (`default.nix` is usable outside flakes).
@@ -163,6 +165,21 @@ python3 scripts/mdrootfs.py verify --bundle X.bundle.zip --spec trusted.spec.yam
 python3 scripts/mdrootfs.py verify --manifest X.manifest.yaml --tree prefix/root --allow-extra
 # Or through the flake:
 nix run .#mdrootfs -- verify --bundle X.bundle.zip
+```
+
+Each release also publishes the **SDK** for each architecture
+(`minidarwin-sdk-<arch>-r<N>.*`). It contains the headers, and a `.tbd` stub
+for every dylib in the rootfs, made from that dylib and checked against it.
+With it, a compiler on any machine can build binaries for minidarwin without
+the system itself. The SDK uses the same format and is verified the same way.
+Its identity has `kind: "sdk"`, and `rootfs_tree` gives the tree digest of the
+rootfs it describes (see
+[`docs/rootfs-spec.md`](docs/rootfs-spec.md#sdk-releases)).
+
+```bash
+python3 scripts/mdrootfs.py verify --spec S.spec.yaml --manifest S.manifest.yaml \
+  --artifact S.tar.gz --extract-to sdk/
+clang -target arm64-apple-macos26.0 -isysroot sdk/ -fuse-ld=lld hello.c -o hello
 ```
 
 To cut a release, bump `sequence` in [`lib/release.nix`](lib/release.nix) and

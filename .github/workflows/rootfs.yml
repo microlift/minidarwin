@@ -92,16 +92,19 @@ jobs:
           s='${{ matrix.scope }}'
           nix build --print-build-logs -o result-check \
             ${s}sdkTest ${s}runtimesTest ${s}libsystemTest ${s}libdispatchTest \
-            ${s}cxxLinkTest ${s}libxml2Test ${s}libxoTest ${s}quickjsTest ${s}topTest ${s}archTest ${s}authTest ${s}releaseTest
+            ${s}cxxLinkTest ${s}libxml2Test ${s}libxoTest ${s}quickjsTest ${s}topTest ${s}archTest ${s}authTest ${s}releaseTest \
+            ${s}sdkLinkTest ${s}sdkReleaseTest
 
-      # Tarball, manifest, spec and bundle (docs/rootfs-spec.md). The
-      # derivation already verified them against each other.
+      # Tarball, manifest, spec and bundle (docs/rootfs-spec.md), for the
+      # rootfs and for the SDK made from it. Each derivation already verified
+      # its files against each other.
       - name: Build release
         id: release
         run: |
           set -euo pipefail
           s='${{ matrix.scope }}'
           nix build --print-build-logs -o result-release "${s}rootfsRelease"
+          nix build --print-build-logs -o result-sdk-release "${s}sdkRelease"
           echo "name=$(nix eval --raw "${s}rootfsRelease.releaseName")" >> "$GITHUB_OUTPUT"
 
       # Both are cheap -- assembly and packing, not compilation -- and they
@@ -112,11 +115,13 @@ jobs:
           s='${{ matrix.scope }}'
           nix build --print-build-logs --rebuild "${s}rootfs"
           nix build --print-build-logs --rebuild "${s}rootfsRelease"
+          nix build --print-build-logs --rebuild "${s}minidarwinSdk"
+          nix build --print-build-logs --rebuild "${s}sdkRelease"
 
       - name: Collect
         run: |
           mkdir dist
-          cp result-release/* dist/
+          cp result-release/* result-sdk-release/* dist/
           chmod u+w dist/*
           (cd dist && shasum -a 256 *)
 
@@ -168,6 +173,21 @@ jobs:
             python3 scripts/mdrootfs.py verify --spec "$spec" --manifest "$n.manifest.yaml" --artifact "$n.tar.gz"
             python3 scripts/mdrootfs.py verify --spec "$spec" --bundle "$n.bundle.zip"
           done
+          # Each SDK names the rootfs it was made from; it must be this release's.
+          for spec in dist/minidarwin-sdk-*.spec.yaml; do
+            python3 - "$spec" <<'PY'
+          import glob, sys
+          sys.path.insert(0, "scripts")
+          import mdrootfs
+          sdk = mdrootfs.load_spec(sys.argv[1])
+          arch = sdk.identity["arch"]
+          (rootfs,) = glob.glob(f"dist/minidarwin-rootfs-{arch}-*.spec.yaml")
+          want, got = mdrootfs.load_spec(rootfs).manifest["tree"], sdk.identity["rootfs_tree"]
+          if want != got:
+              sys.exit(f"{sys.argv[1]}: made from rootfs {got}, but this release's {arch} rootfs is {want}")
+          print(f"{sys.argv[1]}: made from {rootfs}")
+          PY
+          done
 
       # The published spec names its tag, commit and download URLs. Stamping
       # refuses a sequence that does not exceed the previous release's, which
@@ -179,16 +199,19 @@ jobs:
           previous=$(gh release list -R "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases \
                        --json tagName --jq ".[].tagName | select(. != \"$tag\")" | head -n 1)
           mkdir -p previous stamped
+          # One spec per kind (rootfs, sdk) and arch, each compared with the
+          # previous release's spec of the same kind and arch. The rootfs's
+          # identity has no `kind`.
           for spec in dist/*.spec.yaml; do
             file=$(basename "$spec")
-            arch=$(python3 -c 'import sys; sys.path.insert(0, "scripts"); import mdrootfs; print(mdrootfs.load_spec(sys.argv[1]).identity["arch"])' "$spec")
+            read -r kind arch < <(python3 -c 'import sys; sys.path.insert(0, "scripts"); import mdrootfs; i = mdrootfs.load_spec(sys.argv[1]).identity; print(i.get("kind", "rootfs"), i["arch"])' "$spec")
             args=()
             if [ -n "$previous" ] &&
-               gh release download "$previous" -R "$GITHUB_REPOSITORY" -D "previous/$arch" \
-                 -p "minidarwin-rootfs-$arch-*.spec.yaml" 2>/dev/null; then
-              args=(--previous previous/$arch/*.spec.yaml)
+               gh release download "$previous" -R "$GITHUB_REPOSITORY" -D "previous/$kind-$arch" \
+                 -p "minidarwin-$kind-$arch-*.spec.yaml" 2>/dev/null; then
+              args=(--previous previous/$kind-$arch/*.spec.yaml)
             else
-              echo "::notice::$arch: no spec in a previous release; nothing to compare the sequence with"
+              echo "::notice::$kind $arch: no spec in a previous release; nothing to compare the sequence with"
             fi
             python3 scripts/mdrootfs.py stamp "$spec" -o "stamped/$file" \
               --repository "$GITHUB_REPOSITORY" --tag "$tag" --commit "$GITHUB_SHA" ${args[@]+"${args[@]}"}

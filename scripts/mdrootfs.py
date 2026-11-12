@@ -1059,6 +1059,14 @@ def cmd_stamp(args):
         raise Usage("--tag: expected a tag name")
     if args.previous:
         previous = load_spec(args.previous)
+        # The sequence is per kind of release (rootfs, sdk) and arch: an SDK
+        # spec compared with a rootfs one would prove nothing. A rootfs's
+        # identity has no `kind`.
+        for key, default in (("kind", "rootfs"), ("arch", None)):
+            mine = (spec.identity or {}).get(key, default)
+            theirs = (previous.identity or {}).get(key, default)
+            if mine != theirs:
+                raise Invalid(f"stamp: --previous is a {key} {theirs!r} spec, this is {mine!r}")
         if previous.release["sequence"] is None or previous.release["sequence"] >= spec.release["sequence"]:
             raise Invalid(
                 f"stamp: release.sequence {spec.release['sequence']} does not follow the previous "

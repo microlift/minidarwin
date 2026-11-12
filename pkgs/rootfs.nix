@@ -310,5 +310,9 @@ mkDarwinPackage {
           (lib.groupBy (s: declared.${s}) (lib.attrNames declared)))}
   '';
 
+  # For minidarwinSdk, which takes each member's passthru.headers (what the
+  # project installs to /usr/include but the rootfs does not ship).
+  passthru = { inherit members; };
+
   meta.description = "minidarwin rootfs -- everything built so far, at its real paths";
 }

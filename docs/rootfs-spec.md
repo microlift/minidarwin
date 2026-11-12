@@ -17,6 +17,9 @@ can be checked on a machine that has neither Nix nor this checkout.
 | `minidarwin-rootfs-<arch>-r<N>.spec.yaml` | the **spec**: the hashes of those two files, plus identity |
 | `minidarwin-rootfs-<arch>-r<N>.bundle.zip` | the **bundle**: those three files under fixed names, for passing around as one file |
 
+The same build also releases the **SDK** made from that rootfs, in this same
+format: see [SDK releases](#sdk-releases).
+
 `N` is `sequence` in `lib/release.nix`. Every one of these files is
 reproducible byte for byte. A tagged release publishes them with one change:
 the spec is **stamped** with the tag, commit, repository and download URLs.
@@ -345,9 +348,79 @@ uses this when a user hands it a bundle of the official image.
 Exit status: `0` means verified, `1` means verification failed, and `2` means
 the command line was wrong.
 
+## SDK releases
+
+`nix build .#sdkRelease` (or `.#cross.x86_64.sdkRelease`) produces
+`minidarwin-sdk-<arch>-r<N>.{tar.gz,manifest.yaml,spec.yaml,bundle.zip}`. The
+tree is the SDK (`nix build .#minidarwinSdk`): everything a compiler on another
+machine needs to build binaries for a minidarwin system, and none of the
+system's code. It is laid out like an Xcode SDK, so it is used as a sysroot:
+
+```sh
+clang -target arm64-apple-macos26.0 -isysroot sdk/ -fuse-ld=lld hello.c -o hello
+```
+
+| path | content |
+| --- | --- |
+| `/usr/include`, `/System/Library/Frameworks/System.framework` | the SDK headers, libc++'s `c++/v1`, and the headers each library in the rootfs installs |
+| `/usr/lib/**.tbd`, `/compat/**.tbd` | a TAPI v4 stub for each dylib in the rootfs, at the dylib's path with `.dylib` replaced by `.tbd` |
+| `/usr/lib/**.tbd` symlinks | one for each `*.dylib` symlink in the rootfs (`libc.tbd`, `libcurses.tbd`, ...) |
+| `/usr/lib/**.a`, `/usr/lib/pkgconfig/*.pc` | the rootfs's static archives and pkg-config files, as they are |
+| `/SDKSettings.json` | the SDK version, as clang and swift-driver read it |
+
+Each stub is made by `llvm-readtapi` from the rootfs's own dylib and is
+compared with that dylib when it is built. The build fails if they differ in
+install name, versions, reexports or exports. The `sdkLinkTest` check links C,
+C++ and library-using programs once against the SDK and once against the
+rootfs. The two outputs must be byte-identical.
+
+The release format is unchanged. Only `identity` differs:
+
+```yaml
+identity:
+  arch: "aarch64"
+  kind: "sdk"
+  libsystem: "Libsystem-1356"
+  min_os: "26.0"
+  project: "minidarwin"
+  rootfs_tree: "92da28e7..."
+  xnu: "xnu-12377.121.6"
+```
+
+* **`kind: "sdk"`**: a rootfs's identity has no `kind`. Because a spec's
+  `identity` must equal its manifest's exactly, a rootfs spec never verifies an
+  SDK, and an SDK spec never verifies a rootfs.
+* **`rootfs_tree`**: the tree digest of the rootfs that the stubs and headers
+  were made from. It is that rootfs spec's `manifest.tree`. A build system that
+  pins an SDK spec therefore also knows which system its binaries are linked
+  for. It can refuse a rootfs whose tree is different, or extract the rootfs and
+  check it with `mdrootfs verify --manifest`. The release workflow refuses to
+  publish an SDK whose `rootfs_tree` differs from the tree of the rootfs released
+  with it.
+
+Everything else is the same: trust chain, verification, stamping and
+attestation. An SDK spec has its own `release.sequence` history, and stamping
+compares it only with the previous SDK spec for the same arch.
+
+```sh
+# Verify a downloaded SDK and keep the verified tree as a sysroot.
+python3 scripts/mdrootfs.py verify --spec minidarwin-sdk-aarch64-r17.spec.yaml \
+    --manifest minidarwin-sdk-aarch64-r17.manifest.yaml \
+    --artifact minidarwin-sdk-aarch64-r17.tar.gz --extract-to sdk/
+```
+
+The SDK does not include the toolchain's own static runtimes (`libc++.a`,
+`libc++abi.a`, `libunwind.a`), because nothing on the system links them. It
+does not include xnu's `usr/local/internal_hdr`. It also does not include a
+Swift module yet. A consumer brings its own clang and its own resource
+directory, as with any Xcode SDK. `ld64.lld` adds a load command for
+`libc++abi.dylib` to C++ programs unless they pass `-Wl,-no_implicit_dylibs`.
+This happens with the real dylibs too, and Apple's `ld64` does not add it.
+
 ## Releasing
 
-1. Bump `sequence` in `lib/release.nix`, and commit.
+1. Bump `sequence` in `lib/release.nix`, and commit. The rootfs and the SDK
+   share it.
 2. Tag the commit `v*`, and push the tag.
 
 The workflow builds and checks both architectures, and runs `--rebuild` on the

@@ -539,8 +539,18 @@ lib.makeScope pkgs.newScope (self: with self; {
   release = import ./lib/release.nix;
   mdrootfsScript = ./scripts/mdrootfs.py;
   mdrootfs = callPackage ./pkgs/release/mdrootfs.nix { };
+  mkRelease = callPackage ./pkgs/release/mk-release.nix { };
   rootfsRelease = callPackage ./pkgs/release/rootfs-release.nix { };
   releaseTest = callPackage ./pkgs/release/release-test.nix { };
+
+  # Headers and .tbd stubs for building against the rootfs from another
+  # machine, released the same way (docs/rootfs-spec.md, "SDK releases").
+  minidarwinSdk = callPackage ./pkgs/sdk/minidarwin-sdk.nix { };
+  sdkRelease = callPackage ./pkgs/release/sdk-release.nix { };
+  sdkLinkTest = callPackage ./pkgs/sdk/sdk-link-test.nix { };
+  sdkReleaseTest = callPackage ./pkgs/release/release-test.nix {
+    rootfsRelease = sdkRelease;
+  };
 
   #### stage 5: the dynamic linker ############################################
 

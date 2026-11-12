@@ -329,6 +329,30 @@ system_files:
         self.assertEqual(status, 1)
         self.assertIn("does not follow", out)
 
+    def test_the_previous_release_must_be_the_same_kind_and_arch(self):
+        sdk_manifest, sdk_spec = self.path("sdk.yaml"), self.path("sdk-spec.yaml")
+        status, out = run("manifest", self.tree, "-o", sdk_manifest,
+                          "--identity", "project=minidarwin", "--identity", "arch=aarch64",
+                          "--identity", "kind=sdk")
+        self.assertEqual(status, 0, out)
+        status, out = run("spec", "--manifest", sdk_manifest, "--artifact", self.artifact,
+                          "--sequence", "2", "-o", sdk_spec)
+        self.assertEqual(status, 0, out)
+        commit = "0123456789abcdef0123456789abcdef01234567"
+        # A rootfs spec at sequence 3 says nothing about the SDK's sequence 2.
+        status, out = run("stamp", sdk_spec, "-o", self.path("x.yaml"), "--repository", "a/b",
+                          "--tag", "v2", "--commit", commit, "--previous", self.spec)
+        self.assertEqual(status, 1, out)
+        self.assertIn("kind 'rootfs'", out)
+        # The SDK's own previous release is what it is compared with.
+        status, out = run("stamp", self.spec, "-o", self.path("y.yaml"), "--repository", "a/b",
+                          "--tag", "v3", "--commit", commit, "--previous", sdk_spec)
+        self.assertEqual(status, 1, out)
+        self.assertIn("kind 'sdk'", out)
+        status, out = run("stamp", sdk_spec, "-o", self.path("z.yaml"), "--repository", "a/b",
+                          "--tag", "v2", "--commit", commit)
+        self.assertEqual(status, 0, out)
+
 
 class Trees(Case):
     def test_a_modified_file_is_reported(self):
