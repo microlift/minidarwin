@@ -14,6 +14,43 @@ let
 
   # Entire prebuilt input to target world: clang, lld, binutils.
   llvmPackages = pkgs.llvmPackages_21;
+
+  swiftx86Pkg = pkgs.stdenvNoCC.mkDerivation {
+    pname = "swift-bin";
+    version = "6.3.3";
+
+    src = pkgs.fetchurl {
+      url = "https://download.swift.org/swift-6.3.3-release/xcode/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE-osx.pkg";
+      hash = "sha256-7oLld3TWZQ+UqgYwJDXW9EoFW5QRaY247LhdmjvMkdA=";
+    };
+
+    nativeBuildInputs = with pkgs; [
+      xar
+      cpio
+      pbzx
+    ];
+
+    dontConfigure = true;
+    dontBuild = true;
+    dontFixup = true;
+
+    unpackPhase = ''
+      mkdir pkg && cd pkg
+      xar -xf $src
+    '';
+
+    installPhase = ''
+      payload=$(find . -name Payload | head -n1)
+      mkdir root && cd root
+      if gzip -t "../$payload" 2>/dev/null; then
+        gzip -dc "../$payload" | cpio -idm --quiet
+      else
+        pbzx "../$payload" | cpio -idm --quiet
+      fi
+      mkdir -p $out
+      cp -R usr/. $out/
+    '';
+  };
 in
 
 # Cross builds work because target artifacts are never executed.
@@ -438,13 +475,9 @@ lib.makeScope pkgs.newScope (self: with self; {
   swiftInteropHeaders = callPackage ./pkgs/swift/interop-headers.nix { };
   libswiftCore = callPackage ./pkgs/swift/libswift-core.nix {
     toolchain = toolchainStage4;
-    # The build machine's compiler for either target: 6.3's swift-frontend
-    # has both the AArch64 and X86 backends. nixpkgs (26.11 on) has no
-    # x86_64-darwin packages, so an Intel machine has no 6.3 compiler and
-    # cannot build the runtime (or a rootfs) at all.
     swift =
       if swiftPkgs.stdenv.hostPlatform.isx86_64
-      then throw "minidarwin: libswiftCore needs nixpkgs-swift's Swift compiler, which has no x86_64-darwin build; build on an arm64 Mac (either targetArch)"
+      then swiftx86Pkg
       else swiftPkgs.swiftPackages.swift;
   };
   swiftLinkTest = callPackage ./pkgs/swift/swift-link-test.nix {
