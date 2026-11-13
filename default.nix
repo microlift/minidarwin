@@ -21,7 +21,7 @@ let
 
     src = pkgs.fetchurl {
       url = "https://download.swift.org/swift-6.3.3-release/xcode/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE-osx.pkg";
-      hash = "";
+      hash = "sha256-7oLld3TWZQ+UqgYwJDXW9EoFW5QRaY247LhdmjvMkdA=";
     };
 
     nativeBuildInputs = with pkgs; [
