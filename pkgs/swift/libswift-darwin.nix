@@ -14,6 +14,7 @@
 , sources
 , python3
 , libswiftCore
+, targetArch
 }:
 
 let
@@ -106,7 +107,48 @@ let
         "tgammaf"
         "yn"
       ])
-      (_: "system_m");
+      (_: "system_m")
+    # x86_64 only: tgmath's Float80 overloads (the `l` functions).
+    // lib.optionalAttrs (targetArch == "x86_64") (lib.genAttrs
+      (map (s: "_${s}") [
+        "acoshl"
+        "acosl"
+        "asinhl"
+        "asinl"
+        "atan2l"
+        "atanhl"
+        "atanl"
+        "cbrtl"
+        "coshl"
+        "cosl"
+        "erfcl"
+        "erfl"
+        "exp2l"
+        "expl"
+        "expm1l"
+        "fdiml"
+        "fmaxl"
+        "fminl"
+        "hypotl"
+        "lgammal_r"
+        "log10l"
+        "log1pl"
+        "log2l"
+        "logbl"
+        "logl"
+        "nanl"
+        "nearbyintl"
+        "nextafterl"
+        "powl"
+        "remquol"
+        "rintl"
+        "sinhl"
+        "sinl"
+        "tanhl"
+        "tanl"
+        "tgammal"
+      ])
+      (_: "system_m"));
     verifySymbols = [
       "_$s6Darwin5errnos5Int32Vvg"
       "_$s6Darwin14POSIXErrorCodeOMn"
