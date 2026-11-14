@@ -1,0 +1,70 @@
+.Dd November 14, 2026
+.Dt XCODE-SELECT 1
+.Os MiniDarwin
+.Sh NAME
+.Nm xcode-select
+.Nd print or change the active developer directory
+.Sh SYNOPSIS
+.Nm
+.Fl h | Fl p | Fl r | Fl v | Fl -install | Fl s Ar path
+.Sh DESCRIPTION
+The active developer directory decides which developer tools the commands
+in
+.Pa /usr/bin
+(such as
+.Xr cc 1 ,
+.Xr make 1
+and
+.Xr xcrun 1 )
+run: an Xcode's
+.Pa Contents/Developer ,
+or a Command Line Tools installation.
+.Pp
+It is, in order: the
+.Ev DEVELOPER_DIR
+environment variable; the link
+.Pa /var/select/developer_dir ;
+the link
+.Pa /var/db/xcode_select_link ;
+the link
+.Pa /usr/share/xcode-select/xcode_dir_link ;
+the path in
+.Pa /usr/share/xcode-select/xcode_dir_path ;
+and otherwise the first of
+.Pa /Applications/Xcode.app/Contents/Developer ,
+.Pa /Library/Developer/CommandLineTools
+and
+.Pa /Applications/Xcode-beta.app/Contents/Developer
+that has
+.Pa usr/lib/libxcrun.dylib .
+.Sh OPTIONS
+.Bl -tag -width indent
+.It Fl h , Fl -help
+Print usage and exit.
+.It Fl p , Fl -print-path
+Print the active developer directory.
+.It Fl s Ar path , Fl -switch Ar path
+Make
+.Ar path
+the active developer directory: an Xcode application, its
+.Pa Contents/Developer ,
+a Command Line Tools directory, or a volume root.
+Must be run as root.
+.It Fl r , Fl -reset
+Remove the setting, returning to the default.
+Must be run as root.
+.It Fl -install
+Install the Command Line Tools.
+An installer agent is asked first; with none,
+.Pa /usr/libexec/xcselect-install
+is run, which shows Apple's licence and installs the newest release for this
+system from Apple's Software Update service.
+.It Fl v , Fl -version
+Print the version.
+.El
+.Sh EXIT STATUS
+0 on success, 1 on a usage or permission error, 2 when no developer
+directory can be found or a link cannot be written.
+.Sh SEE ALSO
+.Xr xcrun 1 ,
+.Xr mdpkg 8

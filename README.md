@@ -55,6 +55,7 @@ nix build .#perl                 # Apple's Perl 5.34.1 and its standard library
 nix build .#ncursesTools          # clear, tput, tset/reset, infocmp, tic, toe (stage 6)
 nix build .#su .#sudo            # su, sudo/sudoedit and visudo, with PAM configuration (stage 6)
 nix build .#dscl .#dsclTest         # /usr/bin/dscl and dseditgroup over the local dslocal node
+nix build .#xcselect .#xcselectTest # xcode-select, xcrun, libxcselect, tool shims, CLT installer (docs/xcselect.md)
 nix build .#liblzma                # /usr/lib/liblzma.5.dylib (XZ Utils), for mdpkg's pbzx payloads and tar
 nix build .#launchd .#launchdTest   # C++ init/supervisor and isolated host tests
 nix build .#open .#openTest         # /usr/bin/open and its on-demand default daemon, opend

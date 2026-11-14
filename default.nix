@@ -576,6 +576,16 @@ lib.makeScope pkgs.newScope (self: with self; {
     inherit (pkgs) openssl;
   };
 
+  # xcode-select, xcrun, libxcselect, the tool shims and the CLT installer.
+  xcselect = callPackage ./pkgs/xcselect/xcselect.nix {
+    toolchain = toolchainStage3;
+  };
+  xcselectBootstrap = pkgs.callPackage ./pkgs/xcselect/bootstrap.nix { };
+  # The host's curl and openssl: the scope's are MiniDarwin's own.
+  xcselectTest = callPackage ./pkgs/xcselect/xcselect-test.nix {
+    inherit (pkgs) curl openssl;
+  };
+
   # dscl and dseditgroup over the local node's dslocal records.
   dscl = callPackage ./pkgs/dscl/dscl.nix {
     toolchain = toolchainStage3;
