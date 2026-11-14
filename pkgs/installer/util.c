@@ -17,6 +17,7 @@
 
 const char *opt_system_version;
 int opt_skip_scripts;
+const char *opt_signature_policy;
 void (*die_hook)(void);
 void (*create_hook)(const char *path);
 
@@ -235,6 +236,49 @@ void file_write(const char *path, Bytes contents, mode_t mode) {
   file_finish(fd, path, mode);
 }
 
+/* The spool is created unlinked in the first usable temporary directory, so
+ * nothing is left behind whatever happens to this process. */
+void spool_open(Spool *spool) {
+  const char *dirs[] = {getenv("TMPDIR"), "/private/var/tmp", "/tmp"};
+  for (size_t i = 0; i < sizeof(dirs) / sizeof(*dirs); i++) {
+    if (!dirs[i] || *dirs[i] != '/')
+      continue;
+    char *path = path_join(dirs[i], "mdpkg-spool.XXXXXX");
+    int fd = mkstemp(path);
+    if (fd >= 0 && !unlink(path)) {
+      free(path);
+      *spool = (Spool){.fd = fd};
+      return;
+    }
+    if (fd >= 0)
+      close(fd);
+    free(path);
+  }
+  die("no usable temporary directory for the payload spool");
+}
+
+void spool_write(Spool *spool, const unsigned char *p, size_t len) {
+  write_all(spool->fd, p, len, "payload spool");
+  spool->used += len;
+}
+
+void file_write_spooled(const char *path, const Entry *e, mode_t mode) {
+  int out = file_create(path);
+  unsigned char buf[1 << 16];
+  for (uint64_t done = 0; done < e->size;) {
+    size_t want = e->size - done > sizeof(buf) ? sizeof(buf)
+                                               : (size_t)(e->size - done);
+    ssize_t n = pread(e->spool->fd, buf, want, (off_t)(e->spool_offset + done));
+    if (n < 0 && errno == EINTR)
+      continue;
+    if (n <= 0)
+      die("read payload spool: %s", n ? strerror(errno) : "short read");
+    write_all(out, buf, (size_t)n, path);
+    done += (uint64_t)n;
+  }
+  file_finish(out, path, mode);
+}
+
 void file_copy(const char *from, const char *to, mode_t mode) {
   int in = open(from, O_RDONLY | O_NOFOLLOW);
   if (in < 0)
@@ -394,18 +438,63 @@ static int entry_ptr_compare(const void *a, const void *b) {
   return path_compare((*(Entry *const *)a)->path, (*(Entry *const *)b)->path);
 }
 
+static void entry_contents(const Entry *e, uint64_t at, unsigned char *buf,
+                           size_t len) {
+  if (!e->spool) {
+    memcpy(buf, e->data.data + at, len);
+    return;
+  }
+  for (size_t done = 0; done < len;) {
+    ssize_t n = pread(e->spool->fd, buf + done, len - done,
+                      (off_t)(e->spool_offset + at + done));
+    if (n < 0 && errno == EINTR)
+      continue;
+    if (n <= 0)
+      die("read payload spool: %s", n ? strerror(errno) : "short read");
+    done += (size_t)n;
+  }
+}
+
+/* Whether A and B would leave the same object on disk: type, mode, owner,
+ * time, and the link target or contents. */
+int entries_identical(const Entry *a, const Entry *b) {
+  if (a->mode != b->mode || a->uid != b->uid || a->gid != b->gid ||
+      a->mtime != b->mtime)
+    return 0;
+  if (S_ISLNK(a->mode))
+    return !strcmp(a->link, b->link);
+  if (!S_ISREG(a->mode))
+    return 1;
+  uint64_t size = a->spool ? a->size : a->data.len;
+  if (size != (b->spool ? b->size : b->data.len))
+    return 0;
+  unsigned char x[1 << 14], y[1 << 14];
+  for (uint64_t at = 0; at < size;) {
+    size_t n = size - at > sizeof(x) ? sizeof(x) : (size_t)(size - at);
+    entry_contents(a, at, x, n);
+    entry_contents(b, at, y, n);
+    if (memcmp(x, y, n))
+      return 0;
+    at += n;
+  }
+  return 1;
+}
+
 /* Refuses duplicate paths and entries beneath a non-directory entry (such as
- * a file written through a packaged symlink). Directories may repeat across
- * components when ALLOW_REPEATED_DIRECTORIES is set. */
-void entries_check_paths(EntryList *list, int allow_repeated_directories) {
+ * a file written through a packaged symlink). Across components
+ * (ACROSS_COMPONENTS), a path may repeat when every entry for it is a
+ * directory, or when the entries are identical: either way the result on
+ * disk does not depend on which is written. */
+void entries_check_paths(EntryList *list, int across_components) {
   Entry **sorted = xcalloc(list->count, sizeof(Entry *));
   for (size_t i = 0; i < list->count; i++)
     sorted[i] = &list->items[i];
   qsort(sorted, list->count, sizeof(Entry *), entry_ptr_compare);
   for (size_t i = 1; i < list->count; i++)
     if (!strcmp(sorted[i - 1]->path, sorted[i]->path) &&
-        !(allow_repeated_directories && S_ISDIR(sorted[i - 1]->mode) &&
-          S_ISDIR(sorted[i]->mode)))
+        !(across_components &&
+          ((S_ISDIR(sorted[i - 1]->mode) && S_ISDIR(sorted[i]->mode)) ||
+           entries_identical(sorted[i - 1], sorted[i]))))
       die("duplicate path in payload: %s", sorted[i]->path);
   for (size_t i = 0; i < list->count; i++) {
     char *path = xstrdup(sorted[i]->path);

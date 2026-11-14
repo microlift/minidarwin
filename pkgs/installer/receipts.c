@@ -170,13 +170,13 @@ static time_t install_time(void) {
   return epoch && *epoch ? (time_t)parse_uint(epoch, 10) : time(NULL);
 }
 
-void receipts_write(const char *stage, const Package *pkg, const Component *c,
+void receipts_write(const char *stage, const Component *c,
                     EntryList *changes) {
   char rel[PATH_MAX], date[32];
   time_t now = install_time();
   struct tm utc;
   strftime(date, sizeof(date), "%Y-%m-%dT%H:%M:%SZ", gmtime_r(&now, &utc));
-  const char *file_name = strrchr(pkg->path, '/');
+  const char *file_name = strrchr(c->package_path, '/');
   char *prefix = path_join("/", c->location);
 
   xmlNode *dict;
@@ -185,7 +185,7 @@ void receipts_write(const char *stage, const Package *pkg, const Component *c,
   add(dict, "date", date);
   add_string(dict, "InstallPrefixPath", prefix);
   add_string(dict, "InstallProcessName", "mdpkg");
-  add_string(dict, "PackageFileName", file_name ? file_name + 1 : pkg->path);
+  add_string(dict, "PackageFileName", file_name ? file_name + 1 : c->package_path);
   add_string(dict, "PackageIdentifier", c->identifier);
   add_string(dict, "PackageVersion", c->version);
   snprintf(rel, sizeof(rel), "%s/%s.plist", RECEIPTS_DIR, c->identifier);
@@ -200,6 +200,12 @@ void receipts_write(const char *stage, const Package *pkg, const Component *c,
   doc = new_plist(&dict);
   add_string(dict, "PackageIdentifier", c->identifier);
   add_integer(dict, "InventoryVersion", 1);
+  if (c->groups && *c->groups) {
+    add(dict, "key", "PackageGroups");
+    xmlNode *groups = xmlNewChild(dict, NULL, BAD_CAST "array", NULL);
+    for (char **g = c->groups; *g; g++)
+      add(groups, "string", *g);
+  }
   add(dict, "key", "Entries");
   xmlNode *array = xmlNewChild(dict, NULL, BAD_CAST "array", NULL);
   for (size_t i = 0; i < c->payload.count; i++) {

@@ -561,14 +561,20 @@ lib.makeScope pkgs.newScope (self: with self; {
   };
   authTest = callPackage ./pkgs/auth/auth-test.nix { };
 
+  # Apple Root CA (DER), the anchor of mdpkg's apple-software-update
+  # signature policy. security_certificates names each root by its SHA-256.
+  appleRootCA = "${sources.security_certificates}/certificates/roots/B0B1730ECBC7FF4505142C49F1295E6EDA6BCAED7E2C68C5BE91B5A11001F024.cer";
+
   # Independent pkg installer; bootstrap builds the same core in host world.
   installer = callPackage ./pkgs/installer/installer.nix {
     toolchain = toolchainStage3;
   };
   installerBootstrap = pkgs.callPackage ./pkgs/installer/bootstrap.nix {
-    inherit quickjsBuildRoot;
+    inherit quickjsBuildRoot appleRootCA;
   };
-  installerTest = callPackage ./pkgs/installer/installer-test.nix { };
+  installerTest = callPackage ./pkgs/installer/installer-test.nix {
+    inherit (pkgs) openssl;
+  };
 
   # dscl and dseditgroup over the local node's dslocal records.
   dscl = callPackage ./pkgs/dscl/dscl.nix {

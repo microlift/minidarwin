@@ -1,9 +1,10 @@
-# /usr/bin/mdpkg for the rootfs. Links only MiniDarwin's own libxml2, zlib and
-# LibreSSL and embedded QuickJS; no CoreFoundation, no Installer framework.
-{ lib, mkDarwinPackage, toolchain, libxml2, zlib, libressl, quickjs }:
+# /usr/bin/mdpkg for the rootfs. Links only MiniDarwin's own libxml2, zlib,
+# liblzma and LibreSSL and embedded QuickJS; no CoreFoundation, no Installer
+# framework.
+{ lib, mkDarwinPackage, toolchain, libxml2, zlib, liblzma, libressl, quickjs, appleRootCA }:
 
 let
-  sources = [ "main.c" "util.c" "xml.c" "xar.c" "cpio.c" "package.c" "install.c" "receipts.c" "installer-js.c" "js-plist.c" ];
+  sources = [ "main.c" "util.c" "xml.c" "xar.c" "signature.c" "stream.c" "cpio.c" "package.c" "install.c" "receipts.c" "installer-js.c" "js-plist.c" ];
   allowUndefined = lib.filterAttrs (_: provider: provider == "system_m") quickjs.allowUndefined;
 in
 
@@ -16,13 +17,16 @@ mkDarwinPackage {
 
   buildPhase = ''
     runHook preBuild
+    sh der-to-header.sh ${appleRootCA} apple_root_ca_der > apple-root-ca.h
     $CC -std=c11 -O2 -Wall -Wextra -Werror \
       -I${libxml2}/usr/include/libxml2 -I${zlib}/usr/include \
+      -I${liblzma}/usr/include \
       -I${libressl}/usr/local/libressl/include \
       -isystem ${quickjs}/usr/include/quickjs \
       ${builtins.concatStringsSep " " sources} -o mdpkg \
-      -L${libxml2}/usr/lib -L${zlib}/usr/lib -L${libressl}/usr/lib \
-      -lxml2 -lz -lcrypto ${quickjs}/usr/lib/quickjs/libquickjs.a \
+      -L${libxml2}/usr/lib -L${zlib}/usr/lib -L${liblzma}/usr/lib \
+      -L${libressl}/usr/lib \
+      -lxml2 -lz -llzma -lcrypto ${quickjs}/usr/lib/quickjs/libquickjs.a \
       ${lib.escapeShellArgs (map (s: "-Wl,-U,${s}") (lib.attrNames allowUndefined))}
     runHook postBuild
   '';
@@ -36,6 +40,7 @@ mkDarwinPackage {
     expected=$(printf '%s\n' /usr/lib/libSystem.B.dylib \
       "$($OTOOL -D ${libxml2}/usr/lib/libxml2.dylib | tail -n 1)" \
       "$($OTOOL -D ${zlib}/usr/lib/libz.dylib | tail -n 1)" \
+      ${liblzma.installName} \
       "$($OTOOL -D ${libressl}/usr/lib/libcrypto.dylib | tail -n 1)" | sort | tr '\n' ' ')
     if [ "$deps" != "$expected" ]; then
       echo "mdpkg: unexpected load commands: $deps (want $expected)" >&2

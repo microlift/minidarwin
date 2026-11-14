@@ -459,6 +459,19 @@ static void journal_undo(void) {
   }
 }
 
+/* The components this install has already written, for paths they share. */
+static const Component *written;
+static size_t written_count;
+
+static int written_identically(const Entry *e) {
+  for (size_t i = 0; i < written_count; i++) {
+    Entry *prior = entries_find((EntryList *)&written[i].payload, e->path);
+    if (prior && entries_identical(prior, e))
+      return 1;
+  }
+  return 0;
+}
+
 /* Writes ENTRIES beneath BASE. Existing directories are kept as they are;
  * anything else existing is a collision. Directories created here get their
  * packaged mode and time after their contents are in place. */
@@ -484,9 +497,11 @@ static void extract(EntryList *entries, const char *base) {
         apply_ownership(path, e->uid, e->gid, 0);
         created[i] = 1;
       }
-    } else if (exists)
-      die("payload would replace an existing file: /%s", e->path);
-    else if (S_ISLNK(e->mode)) {
+    } else if (exists) {
+      /* An earlier component of this install wrote the same file. */
+      if (!written_identically(e))
+        die("payload would replace an existing file: /%s", e->path);
+    } else if (S_ISLNK(e->mode)) {
       if (symlink(e->link, path))
         die("symlink %s: %s", path, strerror(errno));
       if (tx.live)
@@ -494,7 +509,10 @@ static void extract(EntryList *entries, const char *base) {
       apply_ownership(path, e->uid, e->gid, 1);
       set_times(path, t, t, 1);
     } else {
-      file_write(path, e->data, e->mode);
+      if (e->spool)
+        file_write_spooled(path, e, e->mode);
+      else
+        file_write(path, e->data, e->mode);
       apply_ownership(path, e->uid, e->gid, 0);
       set_times(path, t, t, 0);
     }
@@ -605,7 +623,7 @@ static int any_hook(Component *c, int first, int last) {
   return 0;
 }
 
-static void install_component(Package *pkg, Component *c, const char *runner,
+static void install_component(Component *c, const char *runner,
                               const char *scripts) {
   fprintf(stderr, "mdpkg: installing %s %s (%zu entries) at /%s\n",
           c->identifier, c->version, c->payload.count, c->location);
@@ -621,8 +639,8 @@ static void install_component(Package *pkg, Component *c, const char *runner,
     /* No snapshots of a live root: it is the whole running system. */
     if (!tx.live)
       snapshot_tree(&before, tx.stage);
-    run_hook(c, HOOK_PREFLIGHT, runner, workdir, pkg->path);
-    run_hook(c, HOOK_PREINSTALL, runner, workdir, pkg->path);
+    run_hook(c, HOOK_PREFLIGHT, runner, workdir, c->package_path);
+    run_hook(c, HOOK_PREINSTALL, runner, workdir, c->package_path);
     if (!tx.live) {
       snapshot_tree(&after, tx.stage);
       script_changes(&changes, &before, &after);
@@ -635,8 +653,8 @@ static void install_component(Package *pkg, Component *c, const char *runner,
   if (any_hook(c, HOOK_POSTINSTALL, HOOK_POSTFLIGHT)) {
     if (!tx.live)
       snapshot_tree(&before, tx.stage);
-    run_hook(c, HOOK_POSTINSTALL, runner, workdir, pkg->path);
-    run_hook(c, HOOK_POSTFLIGHT, runner, workdir, pkg->path);
+    run_hook(c, HOOK_POSTINSTALL, runner, workdir, c->package_path);
+    run_hook(c, HOOK_POSTFLIGHT, runner, workdir, c->package_path);
     if (!tx.live) {
       snapshot_tree(&after, tx.stage);
       script_changes(&changes, &before, &after);
@@ -644,7 +662,7 @@ static void install_component(Package *pkg, Component *c, const char *runner,
     entries_free(&before);
     entries_free(&after);
   }
-  receipts_write(base_dir(), pkg, c, &changes);
+  receipts_write(base_dir(), c, &changes);
   entries_free(&changes);
   free(workdir);
 }
@@ -740,8 +758,11 @@ static void install_live(Package *pkg, const char *root, const char *runner) {
     die("no usable temporary directory for scripts");
   die_hook = rollback_live;
   create_hook = journal_add;
-  for (size_t i = 0; i < pkg->count; i++)
-    install_component(pkg, &pkg->components[i], runner, live_tmp);
+  for (size_t i = 0; i < pkg->count; i++) {
+    written = pkg->components;
+    written_count = i;
+    install_component(&pkg->components[i], runner, live_tmp);
+  }
   create_hook = NULL;
   die_hook = NULL;
   if (remove_tree(live_tmp, 0))
@@ -771,8 +792,11 @@ void install_package(Package *pkg, const char *root, const char *runner) {
   char *scripts = path_join(tx.stage, SCRIPTS_DIR);
   if (mkdir(scripts, 0700))
     die("mkdir %s: %s", scripts, strerror(errno));
-  for (size_t i = 0; i < pkg->count; i++)
-    install_component(pkg, &pkg->components[i], runner, scripts);
+  for (size_t i = 0; i < pkg->count; i++) {
+    written = pkg->components;
+    written_count = i;
+    install_component(&pkg->components[i], runner, scripts);
+  }
   remove_or_die(scripts);
   free(scripts);
   restore_base_directories();

@@ -2,6 +2,7 @@
 #include "installer-js.h"
 
 #include <errno.h>
+#include <libxml/tree.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -143,7 +144,7 @@ static int compare_versions(const char *a, const char *b) {
 
 enum { API_LOG, API_COMPARE, API_PROPERTIES, API_SYSCTL,
        API_EXISTS, API_PLIST, API_BUNDLE, API_RECEIPT,
-       API_HOST_VERSION, API_TARGET_VERSION, API_SPACE };
+       API_HOST_VERSION, API_TARGET_VERSION, API_SPACE, API_LOCALIZED };
 
 static JSValue native_api(JSContext *ctx, JSValueConst this_value, int argc,
                            JSValueConst *argv, int api) {
@@ -242,6 +243,15 @@ static JSValue native_api(JSContext *ctx, JSValueConst this_value, int argc,
       result = JS_NewInt32(ctx, value.integer);
     else
       result = JS_ThrowTypeError(ctx, "unsupported system.sysctl value type: %s", arg);
+  } else if (api == API_LOCALIZED) {
+    const char *found = NULL;
+    for (char **kv = js->strings; kv && *kv; kv += 2)
+      if (!strcmp(kv[0], arg))
+        found = kv[1];
+    /* FIXME (ACCURACY): a key missing from the table is returned as itself,
+     * as Cocoa's string lookups do; Installer's own behaviour for it is not
+     * documented. */
+    result = JS_NewString(ctx, found ? found : arg);
   } else if (api == API_RECEIPT) {
     int valid = *arg && strlen(arg) <= 200 && strcmp(arg, ".") && strcmp(arg, "..");
     for (const char *p = arg; *p; p++)
@@ -360,7 +370,8 @@ InstallerJS *installer_js_new(const char *root, int live) {
   method(js, files, "plistAtPath", API_PLIST);
   method(js, files, "bundleAtPath", API_BUNDLE);
   put(js, system, "files", files);
-  const char *names[] = {"run", "runOnce", "localizedString", "localizedStringWithFormat",
+  method(js, system, "localizedString", API_LOCALIZED);
+  const char *names[] = {"run", "runOnce", "localizedStringWithFormat",
       "localizedStandardString", "localizedStandardStringWithFormat", "applications",
       "ioregistry", "defaults", "users", "gestalt", NULL};
   for (const char **name = names; *name; name++) {
@@ -428,8 +439,52 @@ int installer_js_boolean(InstallerJS *js, const char *source, const char *label)
   return result;
 }
 
+/* A volume-check's allowed-os-versions: the target's ProductVersion must lie
+ * in one of the [min, before) ranges. */
+static void check_allowed_versions(InstallerJS *js, xmlNode *list) {
+  JSValue version = native_api(js->context, JS_UNDEFINED, 0, NULL,
+                               API_TARGET_VERSION);
+  installer_js_require(js, version, "volume-check");
+  const char *have = JS_IsString(version) ? JS_ToCString(js->context, version) : NULL;
+  if (!have || !valid_version(have))
+    die("volume-check: the target has no readable macOS version");
+  char ranges[1024] = "";
+  int allowed = 0;
+  for (xmlNode *n = xml_elements(list); n; n = xml_next_element(n)) {
+    if (!xml_is(n, "os-version"))
+      die("unsupported allowed-os-versions element: %s", xml_name(n));
+    char *min = xml_attr(n, "min", ""), *before = xml_attr(n, "before", "");
+    for (xmlAttr *a = n->properties; a; a = a->next)
+      if (strcmp((const char *)a->name, "min") &&
+          strcmp((const char *)a->name, "before"))
+        die("unsupported os-version attribute: %s", (const char *)a->name);
+    if ((!*min && !*before) || (*min && !valid_version(min)) ||
+        (*before && !valid_version(before)))
+      die("os-version needs dotted versions in min and/or before");
+    if ((!*min || compare_versions(have, min) >= 0) &&
+        (!*before || compare_versions(have, before) < 0))
+      allowed = 1;
+    size_t used = strlen(ranges);
+    snprintf(ranges + used, sizeof(ranges) - used, "%s[%s, %s)",
+             used ? ", " : "", *min ? min : "", *before ? before : "");
+    free(min);
+    free(before);
+  }
+  if (!allowed)
+    die("volume-check: target macOS %s is not in allowed-os-versions %s",
+        have, ranges);
+  JS_FreeCString(js->context, have);
+  JS_FreeValue(js->context, version);
+}
+
 void installer_js_check(InstallerJS *js, xmlNode *node) {
   if (!node)
+    return;
+  xmlNode *versions = xml_is(node, "volume-check")
+                          ? xml_child(node, "allowed-os-versions") : NULL;
+  if (versions)
+    check_allowed_versions(js, versions);
+  if (versions && !xmlHasProp(node, BAD_CAST "script"))
     return;
   const char *keys[] = {"type", "title", "message"};
   for (size_t i = 0; i < 3; i++)

@@ -10,6 +10,7 @@ typedef struct {
   JSValue global, target, result, choices;
   char *root;
   int live;
+  char **strings; /* the Distribution's localization: key, value, ..., NULL */
   struct timespec deadline;
 } InstallerJS;
 

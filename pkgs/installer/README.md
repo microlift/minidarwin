@@ -3,16 +3,20 @@
 `mdpkg` installs flat `.pkg` files into a directory tree: the running root (`/`),
 which is how Rosetta 3 uses it on its MiniDarwin base system, or an offline
 tree, typically a writable copy of the MiniDarwin rootfs. It uses libxml2,
-zlib, LibreSSL/OpenSSL and an embedded QuickJS engine, not CoreFoundation
-or Apple's Installer.
+zlib, liblzma, LibreSSL/OpenSSL and an embedded QuickJS engine, not
+CoreFoundation or Apple's Installer.
 
 Options are spelled as in macOS's `installer`, with one dash:
 
 ```
 mdpkg -pkg FILE -target DIRECTORY [-script-runner EXECUTABLE]
+mdpkg -dist FILE -pkg-dir DIRECTORY -target DIRECTORY [...]
 mdpkg -pkginfo -pkg FILE [-target DIRECTORY]
 mdpkg -vers
 ```
+
+`-verify-signature apple-software-update` (any form) refuses a package that
+is not signed as Apple's Software Update packages are (see "Signatures").
 
 Two further options exist for packages written for a macOS that is not the
 host: `-system-version X.Y` and `-skip-scripts` (see "MacPorts" below).
@@ -31,26 +35,61 @@ There are two builds of the same sources:
 ## What is supported
 
 - **Container:** XAR version 1, members stored raw or zlib-compressed. The
-  TOC checksum and every member's archived and extracted checksums (SHA-1,
-  MD5, SHA-256 or SHA-512) are verified. Signatures are not checked:
-  checksums detect corruption, they do not establish who made the package.
+  TOC checksum and the archived and extracted checksums (SHA-1, MD5, SHA-256
+  or SHA-512) of every member used are verified. The file is mapped and a
+  member is decoded when first read; stored members are used in place.
+  Checksums detect corruption; only a signature policy (below) establishes
+  who made the package.
 - **Packages:** a bare component package, or a product archive whose
   Distribution selects embedded components (`#name.pkg`
   references, percent-encoded or not). `hostArchitectures` is shown by
   `inspect` and not enforced: the root's architecture is not the host's.
-- **Payloads:** raw or gzip CPIO in odc, newc or crc format, holding regular
-  files, directories and symlinks.
+- **Payloads:** raw, gzip or pbzx CPIO in odc, newc or crc format, holding
+  regular files, directories and symlinks. A payload is read as a stream and
+  its file contents are spooled to an unlinked file in `$TMPDIR` (else
+  `/private/var/tmp`, `/tmp`), so it never has to fit in memory. pbzx, the
+  Software Update format, is chunks that are each an .xz stream, or stored
+  when the chunk's two lengths are equal.
+- **Software Update products:** `-dist FILE -pkg-dir DIRECTORY` installs a
+  standalone Distribution whose `pkg-ref`s name component packages in
+  `DIRECTORY` by plain file name, as Apple's Software Update products do.
 - **Scripts:** `preflight`, `preinstall`, `postinstall` and `postflight`.
   In the running root they are run directly; in an offline root, through a
   script runner (below).
 - **Installer JS:** inline Distribution scripts, installation/volume checks,
   choice expressions and package activation, using the subset described below.
 
-Refused, before the root is touched: other compressions (pbzx, bzip2),
+Refused, before the root is touched: other compressions (bzip2, lzfse),
 external Distribution scripts and package references, hardlinks, device nodes,
 FIFOs, set-id bits, AppleDouble files, DTDs in package XML, and unknown
 PackageInfo or Distribution elements. XML plist reads have the separate,
 restricted DOCTYPE handling described below.
+
+`PackageInfo`'s `<groups>` (package groups, as `pkgutil --groups` lists them)
+is recorded in the mdpkg inventory as `PackageGroups`; Apple's receipt plist
+has no key for it, so the receipt is left as Apple writes it.
+
+`PackageInfo`'s `numberOfFiles` must count either every payload entry (as
+`pkgbuild` writes it) or only its regular files (as Apple's Software Update
+packages do).
+
+## Signatures
+
+`-verify-signature POLICY` checks every package mdpkg opens. The TOC must
+carry one RSA signature of the TOC checksum (PKCS#1 v1.5, with the
+checksum's digest), and the signing certificate, the first in the TOC, must
+chain through the TOC's other certificates to the policy's anchor. Only the
+anchor is trusted, and the TOC's own copy of it counts for nothing.
+
+- `apple-software-update`: anchor Apple Root CA (compiled in from
+  `security_certificates`), and the signing certificate must have the Apple
+  Software Update Signing usage, `1.2.840.113635.100.4.1`. Apple's
+  Command Line Tools packages verify under it.
+
+`-pkginfo` prints the verified signer. The host build (`bootstrap.nix`, built
+with `MDPKG_TESTING`) also takes `MDPKG_TEST_SIGNATURE_ANCHOR`, a DER
+certificate that replaces the anchor, for the tests' own chain; the rootfs
+build has no such override.
 
 ## MacPorts
 
@@ -116,6 +155,10 @@ Both builds embed the same pinned [QuickJS](../quickjs/README.md) engine.
 The object model follows [Apple's Installer JS documentation](https://developer.apple.com/documentation/installer_js)
 within this supported subset:
 
+- `system.localizedString(key)` looks the key up in the Distribution's
+  English `<localization><strings>` table (Apple's `.strings` syntax). A
+  missing key returns itself, as Cocoa's lookups do; Installer's own answer
+  is undocumented.
 - `system.log(text)` prints `JS:` messages to stderr. `propertiesOf(object)`
   returns its own enumerable string property names. `compareVersions(a, b)`
   compares numeric dotted versions, ignoring leading zeros and treating omitted
@@ -139,6 +182,14 @@ within this supported subset:
   real numbers, booleans, UTC dates (`Date`) and base64 data (`Uint8Array`).
   The canonical Apple plist DOCTYPE is accepted without loading it. Binary
   plists, entity declarations, malformed values and duplicate keys are errors.
+
+A `volume-check` holding `<allowed-os-versions>` is enforced: the target's
+`SystemVersion.plist` `ProductVersion` must be in one of its `[min, before)`
+ranges, and a target without one is refused. Such a check needs no `script`.
+An `<allowed-os-versions>` elsewhere is reported by `-pkginfo` and not enforced.
+Software Update's `tags`, `platforms` and `localization` elements are
+accepted; of several `choices-outline`s, the one without a `ui` attribute
+(Installer's) is followed, and `ui` values may not repeat.
 
 The inline `<script>` (escaped XML text or CDATA) executes once. Its globals
 are shared by subsequent checks and expressions. Installation checks run
@@ -168,7 +219,7 @@ The runtime has a 64 MiB engine memory limit, a 1 MiB JS stack limit and a share
 five-second monotonic evaluation deadline. Evaluation is synchronous; queued
 asynchronous jobs are refused. The embedder provides no QuickJS `std`/`os`
 modules, module loader, process execution, network or file-writing APIs.
-`system.run`/`runOnce`, localization, applications, IORegistry, defaults,
+`system.run`/`runOnce`, other localization calls, applications, IORegistry, defaults,
 desktop-session queries, Gestalt and `choice.packageUpgradeAction` fail with
 explicit unsupported-API diagnostics when accessed. Relocation searches and
 other unsupported Distribution elements remain refused. JS support does not
@@ -189,7 +240,11 @@ whether it is in the root or in the payload.
 
 Existing directories are kept as they are. Any other existing file at a
 payload path is a collision and fails the install, as does a package whose
-receipt is already present. `/private/var/db/receipts`, `/private/var/db/mdpkg`
+receipt is already present. Components of one install may share a path only
+when every entry for it is a directory, or when the entries are identical
+(type, mode, owner, time and contents), as the placeholder file in each of
+Apple's SDK removal packages is: the file is written once and each
+component's inventory lists it. `/private/var/db/receipts`, `/private/var/db/mdpkg`
 and `/.mdpkg-scripts` are reserved.
 
 Files and new directories get the packaged mode and modification time. Run as

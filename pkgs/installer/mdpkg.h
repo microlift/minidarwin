@@ -15,9 +15,15 @@
 /* Hostile-input bounds. Every size read from a package is checked against
  * these before anything is allocated. */
 #define LIMIT_MEMBER (512u * 1024u * 1024u) /* one decoded XAR member */
-#define LIMIT_DECODED (1024u * 1024u * 1024u) /* all decoded bytes */
+#define LIMIT_DECODED (1024u * 1024u * 1024u) /* all bytes decoded to memory */
+#define LIMIT_PACKAGE (UINT64_C(16) << 30)  /* one package file */
+#define LIMIT_SPOOLED (UINT64_C(64) << 30)  /* payload contents, held on disk */
+#define LIMIT_PBZX_CHUNK (64u * 1024u * 1024u)
+#define LIMIT_XZ_MEMORY (256u * 1024u * 1024u)
 #define LIMIT_XML (16u * 1024u * 1024u)
-#define LIMIT_ENTRIES 100000
+/* Entries are metadata only (contents are spooled); Apple's Command Line
+ * Tools, with two macOS SDKs, are well over 100,000. */
+#define LIMIT_ENTRIES 1000000
 #define LIMIT_DEPTH 128
 #define LIMIT_SYMLINK_HOPS 32
 
@@ -30,6 +36,13 @@ typedef struct {
   unsigned char *data;
   size_t len;
 } Bytes;
+
+/* An unlinked temporary file that holds a component's payload contents, so
+ * that no payload has to fit in memory. */
+typedef struct {
+  int fd;
+  uint64_t used;
+} Spool;
 
 /* One filesystem object: a CPIO record, or a snapshot of an installed one.
  * `path` is root-relative and normalized ("" is the root itself). For
@@ -44,6 +57,9 @@ typedef struct {
   gid_t gid;
   time_t mtime;
   Bytes data;
+  /* Set instead of `data` for a payload file: SIZE bytes at SPOOL_OFFSET. */
+  const Spool *spool;
+  uint64_t spool_offset, size;
 } Entry;
 
 typedef struct {
@@ -51,14 +67,23 @@ typedef struct {
   size_t count;
 } EntryList;
 
+/* A member is decoded and verified when first asked for. */
 typedef struct {
   char *name;
+  uint64_t offset, length, size;
+  char *encoding, *archived_style, *archived, *extracted_style, *extracted;
+  int read;
   Bytes data;
 } XarMember;
 
 typedef struct {
+  char *path;
+  unsigned char *map; /* the whole file, mapped read-only */
+  size_t map_len;
+  Bytes heap;
   XarMember *members;
   size_t count;
+  char *signer; /* subject of the verified signing certificate, or NULL */
 } Xar;
 
 enum { HOOK_PREFLIGHT, HOOK_PREINSTALL, HOOK_POSTINSTALL, HOOK_POSTFLIGHT,
@@ -66,31 +91,38 @@ enum { HOOK_PREFLIGHT, HOOK_PREINSTALL, HOOK_POSTINSTALL, HOOK_POSTFLIGHT,
 extern const char *const hook_names[HOOK_COUNT];
 
 typedef struct {
+  Xar *xar;      /* the archive holding this component */
   char *xar_dir; /* "" for a bare component, else e.g. "mcinstall.pkg" */
+  char *package_path; /* the .pkg file, for scripts and receipts */
   char *identifier;
   char *version;
   char *location; /* normalized, root-relative install-location */
   Bytes bom;
   EntryList payload; /* paths include `location` */
+  Spool *spool; /* shared by the payload's entries, so never moved */
   EntryList scripts;
   char *hooks[HOOK_COUNT]; /* script paths inside `scripts`, or NULL */
+  char **groups; /* PackageInfo's package groups, NULL-terminated */
   int metadata_only; /* target-free inspection of a JS candidate */
 } Component;
 
 typedef struct {
-  const char *path; /* absolute */
+  const char *path; /* absolute; the Distribution itself with -dist */
   Xar xar;
+  const char *pkg_dir; /* -dist: where its pkg-refs are, else NULL */
   Component *components;
   size_t count;
   char *host_architectures; /* informational; NULL if absent */
   char *allowed_os_versions; /* informational, e.g. "15 <= v < 16.0"; NULL if absent */
   struct _xmlDoc *distribution; /* retained until target selection */
+  char **strings; /* Distribution localization: key, value, ..., NULL */
   int needs_js, unresolved;
 } Package;
 
 /* Command-line policy (main.c sets these, defined in util.c). */
 extern const char *opt_system_version; /* -system-version: system.version.ProductVersion */
 extern int opt_skip_scripts;           /* -skip-scripts: install payloads only */
+extern const char *opt_signature_policy; /* -verify-signature POLICY */
 
 /* util.c */
 _Noreturn void die(const char *fmt, ...);
@@ -113,6 +145,9 @@ Bytes file_read(const char *path, size_t limit);
 void file_write(const char *path, Bytes contents, mode_t mode);
 void file_copy(const char *from, const char *to, mode_t mode);
 Bytes inflate_limited(Bytes in, int window_bits, size_t expected, size_t limit);
+void file_write_spooled(const char *path, const Entry *e, mode_t mode);
+void spool_open(Spool *spool);
+void spool_write(Spool *spool, const unsigned char *p, size_t len);
 void decoded_account(size_t n);
 Bytes digest(Bytes in, const char *algorithm);
 Bytes file_sha256(const char *path);
@@ -120,7 +155,8 @@ char *hex_encode(Bytes b);
 void entries_append(EntryList *list, Entry e);
 void entries_free(EntryList *list);
 Entry *entries_find(EntryList *list, const char *path);
-void entries_check_paths(EntryList *list, int allow_repeated_directories);
+void entries_check_paths(EntryList *list, int across_components);
+int entries_identical(const Entry *a, const Entry *b);
 void symlink_check_lexical(const char *path, const char *target);
 
 /* xml.c -- thin, failing wrappers over libxml2. */
@@ -143,11 +179,23 @@ uint64_t xml_child_uint(xmlNode *parent, const char *name);
 void xar_open(Xar *xar, const char *path);
 Bytes xar_member(Xar *xar, const char *name, int required);
 
-/* cpio.c */
-void cpio_parse(Bytes archive, EntryList *out);
+/* signature.c: dies unless the TOC's signature chains to the policy's anchor. */
+char *xar_verify_signature(xmlNode *toc, Bytes heap, Bytes toc_hash,
+                           const char *hash_style, const char *policy);
+
+/* stream.c: a payload, raw or gzip/pbzx-compressed, read front to back. */
+typedef struct Stream Stream;
+Stream *stream_open(Bytes encoded);
+size_t stream_read(Stream *s, unsigned char *buf, size_t len);
+void stream_close(Stream *s);
+
+/* cpio.c: with a spool, file contents go there instead of into memory. */
+void cpio_parse(Bytes archive, EntryList *out, Spool *spool);
 
 /* package.c */
 void package_load(Package *pkg, const char *path);
+void package_load_distribution(Package *pkg, const char *path,
+                               const char *pkg_dir);
 void package_resolve(Package *pkg, const char *root, int live);
 void package_inspect_candidates(Package *pkg);
 
@@ -161,7 +209,7 @@ char *inspect_target(const char *requested);
 /* receipts.c */
 void snapshot_tree(EntryList *out, const char *base);
 Entry snapshot_entry(const char *base, const char *rel);
-void receipts_write(const char *stage, const Package *pkg, const Component *c,
+void receipts_write(const char *stage, const Component *c,
                     EntryList *script_changes);
 void script_changes(EntryList *out, EntryList *before, EntryList *after);
 

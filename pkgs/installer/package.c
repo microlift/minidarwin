@@ -28,10 +28,9 @@ static void check_identifier(const char *s) {
       die("invalid package identifier: %s", s);
 }
 
-static Bytes component_member(Package *pkg, const char *dir, const char *name,
-                              int required) {
-  char *path = path_join(dir, name);
-  Bytes b = xar_member(&pkg->xar, path, required);
+static Bytes component_member(Component *c, const char *name, int required) {
+  char *path = path_join(c->xar_dir, name);
+  Bytes b = xar_member(c->xar, path, required);
   free(path);
   return b;
 }
@@ -43,7 +42,26 @@ static Bytes component_member(Package *pkg, const char *dir, const char *name,
 static const char *const packageinfo_elements[] = {
     "payload",           "scripts",  "bundle-version", "upgrade-bundle",
     "update-bundle",     "atomic-update-bundle",       "strict-identifier",
-    "relocate",          "bundle",   NULL};
+    "relocate",          "bundle",   "groups",         NULL};
+
+/* <groups><group>ID</group>...</groups>: the package groups (pkgutil's
+ * --groups) a component belongs to. */
+static char **read_groups(xmlNode *groups) {
+  size_t count = 0;
+  char **out = xcalloc(1, sizeof(char *));
+  for (xmlNode *n = xml_elements(groups); n; n = xml_next_element(n)) {
+    if (!xml_is(n, "group"))
+      die("unsupported PackageInfo groups element: %s", xml_name(n));
+    if (count >= 64)
+      die("package group limit");
+    char *id = xml_text(n);
+    check_identifier(id);
+    out = xrealloc(out, count + 2, sizeof(char *));
+    out[count++] = id;
+    out[count] = NULL;
+  }
+  return out;
+}
 
 static void read_scripts(Component *c, xmlNode *scripts) {
   for (xmlNode *n = xml_elements(scripts); n;
@@ -63,15 +81,35 @@ static void read_scripts(Component *c, xmlNode *scripts) {
   }
 }
 
-static void load_component(Package *pkg, const char *dir,
+/* REF is a directory inside the product archive, or, with -dist, a package
+ * file in the package directory. */
+static void load_component(Package *pkg, const char *ref,
                            const char *expected_id, int metadata_only) {
+  Component c = {0};
+  if (pkg->pkg_dir) {
+    c.package_path = path_join(pkg->pkg_dir, ref);
+    c.xar_dir = xstrdup("");
+  } else {
+    c.package_path = xstrdup(pkg->path);
+    c.xar_dir = xstrdup(ref);
+  }
   for (size_t i = 0; i < pkg->count; i++)
-    if (!strcmp(pkg->components[i].xar_dir, dir))
+    if (!strcmp(pkg->components[i].package_path, c.package_path) &&
+        !strcmp(pkg->components[i].xar_dir, c.xar_dir)) {
+      free(c.package_path);
+      free(c.xar_dir);
       return;
+    }
   if (pkg->count >= 1024)
     die("component limit");
-  Component c = {.xar_dir = xstrdup(dir)};
-  xmlDoc *doc = xml_parse(component_member(pkg, dir, "PackageInfo", 1));
+  if (pkg->pkg_dir) {
+    c.xar = xcalloc(1, sizeof(Xar));
+    xar_open(c.xar, c.package_path);
+    if (xar_member(c.xar, "Distribution", 0).data)
+      die("%s: a Distribution's pkg-ref must name a component package", ref);
+  } else
+    c.xar = &pkg->xar;
+  xmlDoc *doc = xml_parse(component_member(&c, "PackageInfo", 1));
   xmlNode *info = xml_root(doc, "pkg-info");
   char *format = xml_attr(info, "format-version", NULL);
   if (strcmp(format, "2"))
@@ -102,23 +140,33 @@ static void load_component(Package *pkg, const char *dir,
     return;
   }
 
-  Bytes payload = component_member(pkg, dir, "Payload", 0),
-        scripts = component_member(pkg, dir, "Scripts", 0);
-  if (payload.data)
-    cpio_parse(payload, &c.payload);
+  Bytes payload = component_member(&c, "Payload", 0),
+        scripts = component_member(&c, "Scripts", 0);
+  if (payload.data) {
+    c.spool = xcalloc(1, sizeof(Spool));
+    spool_open(c.spool);
+    cpio_parse(payload, &c.payload, c.spool);
+  }
   if (scripts.data)
-    cpio_parse(scripts, &c.scripts);
-  c.bom = component_member(pkg, dir, "Bom", 1);
+    cpio_parse(scripts, &c.scripts, NULL);
+  c.bom = component_member(&c, "Bom", 1);
   if (c.bom.len < 32 || memcmp(c.bom.data, "BOMStore", 8))
     die("invalid BOM");
   xmlNode *count = xml_child(info, "payload");
   if (count) {
+    /* pkgbuild counts every payload entry; Apple's Software Update packages
+     * count regular files only. Either is consistent. */
     char *n = xml_attr(count, "numberOfFiles", NULL);
-    if (parse_uint(n, 10) != c.payload.count)
+    size_t files = 0;
+    for (size_t i = 0; i < c.payload.count; i++)
+      files += S_ISREG(c.payload.items[i].mode);
+    uint64_t claimed = parse_uint(n, 10);
+    if (claimed != c.payload.count && claimed != files)
       die("PackageInfo numberOfFiles does not match the payload");
     free(n);
   }
   read_scripts(&c, xml_child(info, "scripts"));
+  c.groups = read_groups(xml_child(info, "groups"));
   xml_free(doc);
 
   for (size_t i = 0; i < c.payload.count; i++) {
@@ -155,6 +203,15 @@ static char *embedded_reference(const char *ref) {
   return path;
 }
 
+/* With -dist, a pkg-ref names a package file beside the Distribution, as a
+ * Software Update product's does. Only a plain file name is accepted. */
+static char *sibling_reference(const char *ref) {
+  if (!*ref || *ref == '#' || strchr(ref, '/') || strchr(ref, ':') ||
+      !strcmp(ref, ".") || !strcmp(ref, ".."))
+    die("pkg-ref is not a package file name: %s", ref);
+  return xstrdup(ref);
+}
+
 static int static_boolean(xmlNode *n, const char *key) {
   char *v = xml_attr(n, key, "true");
   int result = !strcmp(v, "true");
@@ -171,6 +228,9 @@ static const char *const distribution_elements[] = {
     "conclusion", "product", "choices-outline", "line", "choice", "pkg-ref",
     "bundle-version", "bundle", "must-close", "app", "script",
     "installation-check", "volume-check", "allowed-os-versions", "os-version",
+    /* Software Update's tags and platforms are informational here;
+     * localization is system.localizedString's table. */
+    "tags", "tag", "platforms", "client", "server", "localization", "strings",
     NULL};
 static const char *const expression_attributes[] = {
     "selected", "enabled", "visible", "active", NULL};
@@ -218,12 +278,25 @@ static void validate_distribution(Package *pkg, InstallerJS *js, xmlNode *n,
       pkg->needs_js = 1;
     }
     if (xml_is(n, "installation-check") || xml_is(n, "volume-check")) {
-      char *source = xml_attr(n, "script", NULL);
-      installer_js_compile(js, source, xml_name(n), 0);
-      free(source);
+      /* A volume-check may consist only of allowed-os-versions. */
+      int versions_only = xml_is(n, "volume-check") &&
+                          xml_child(n, "allowed-os-versions") &&
+                          !xmlHasProp(n, BAD_CAST "script");
+      if (!versions_only) {
+        char *source = xml_attr(n, "script", NULL);
+        installer_js_compile(js, source, xml_name(n), 0);
+        free(source);
+      }
       pkg->needs_js = 1;
     }
-    if (xml_is(n, "os-version")) {
+    if (xml_is(n, "localization"))
+      for (xmlNode *c = xml_elements(n); c; c = xml_next_element(c))
+        if (!xml_is(c, "strings"))
+          die("unsupported localization element: %s", xml_name(c));
+    /* Under a volume-check, the versions are enforced (installer-js.c); a
+     * list anywhere else is not part of a volume check and is reported. */
+    if (xml_is(n, "os-version") && !(n->parent && n->parent->parent &&
+                                    xml_is(n->parent->parent, "volume-check"))) {
       /* Informational, like hostArchitectures: the root's OS is not the
        * host's, and the package's own installation-check is what enforces. */
       char *min = xml_attr(n, "min", ""), *before = xml_attr(n, "before", "");
@@ -295,6 +368,8 @@ static void merge_attribute(char **out, xmlNode *n, const char *key) {
     free(value);
 }
 
+static int sibling; /* references are sibling files (-dist) */
+
 static void collect_reference(xmlNode *n, const char *id, Reference *ref) {
   for (; n; n = xml_next_element(n)) {
     if (xml_is(n, "pkg-ref")) {
@@ -316,7 +391,8 @@ static void collect_reference(xmlNode *n, const char *id, Reference *ref) {
             if (*start) {
               if (ref->path)
                 die("pkg-ref %s has several locations", id);
-              ref->path = embedded_reference(start);
+              ref->path = sibling ? sibling_reference(start)
+                                  : embedded_reference(start);
             }
             free(text);
           }
@@ -351,6 +427,32 @@ typedef struct {
   Choice *items;
   size_t count;
 } ChoiceList;
+
+/* Front ends other than Installer have their own outlines, named by `ui`
+ * (Software Update's is ui="SoftwareUpdate"). Installer's is the one
+ * without, and that is the one mdpkg follows. */
+static xmlNode *main_outline(xmlNode *dist) {
+  xmlNode *found = NULL;
+  for (xmlNode *n = xml_elements(dist); n; n = xml_next_element(n)) {
+    if (!xml_is(n, "choices-outline"))
+      continue;
+    char *ui = xml_attr(n, "ui", "");
+    for (xmlNode *m = xml_elements(dist); m != n; m = xml_next_element(m))
+      if (xml_is(m, "choices-outline")) {
+        char *other = xml_attr(m, "ui", "");
+        if (!strcmp(ui, other))
+          die("duplicate Distribution element: choices-outline%s%s",
+              *ui ? " ui=" : "", ui);
+        free(other);
+      }
+    if (!*ui)
+      found = n;
+    free(ui);
+  }
+  if (!found)
+    die("Distribution without a choices-outline");
+  return found;
+}
 
 static void outline_choices(xmlNode *dist, xmlNode *line, ChoiceList *choices,
                               int depth) {
@@ -510,9 +612,10 @@ void package_resolve(Package *pkg, const char *root, int live) {
     die("Installer JS selection requires a target");
   xmlNode *dist = xmlDocGetRootElement(pkg->distribution);
   ChoiceList choices = {0};
-  outline_choices(dist, xml_elements(xml_child(dist, "choices-outline")), &choices, 0);
+  outline_choices(dist, xml_elements(main_outline(dist)), &choices, 0);
   InstallerJS *js = pkg->needs_js ? installer_js_new(root, live) : NULL;
   if (js) {
+    js->strings = pkg->strings;
     initialize_choices(js, dist, &choices);
     xmlNode *script = xml_child(dist, "script");
     if (script) {
@@ -576,22 +679,94 @@ void package_inspect_candidates(Package *pkg) {
   pkg->unresolved = 1;
 }
 
-void package_load(Package *pkg, const char *path) {
-  *pkg = (Package){.path = path};
-  xar_open(&pkg->xar, path);
-  Bytes distribution = xar_member(&pkg->xar, "Distribution", 0);
-  if (!distribution.data) {
-    load_component(pkg, "", NULL, 0);
-    check_payload_paths(pkg);
-    return;
+/* One quoted .strings token: "..." with C escapes, or '...' taken as is. */
+static char *strings_token(const char **p) {
+  char quote = **p;
+  if (quote != '"' && quote != '\'')
+    die("localization strings: expected a quoted string");
+  size_t cap = strlen(*p), n = 0;
+  char *out = xcalloc(cap + 1, 1);
+  for ((*p)++; **p != quote; (*p)++) {
+    if (!**p)
+      die("localization strings: unterminated string");
+    char ch = **p;
+    if (quote == '"' && ch == '\\') {
+      ch = *++*p;
+      ch = ch == 'n' ? '\n' : ch == 't' ? '\t' : ch == 'r' ? '\r'
+           : ch == '"' || ch == '\\' || ch == '\'' ? ch : 0;
+      if (!ch)
+        die("localization strings: unsupported escape");
+    }
+    out[n++] = ch;
   }
+  (*p)++;
+  return out;
+}
+
+static void skip_strings_space(const char **p) {
+  for (;;) {
+    while (**p == ' ' || **p == '\t' || **p == '\r' || **p == '\n')
+      (*p)++;
+    if ((*p)[0] == '/' && (*p)[1] == '*') {
+      const char *end = strstr(*p + 2, "*/");
+      if (!end)
+        die("localization strings: unterminated comment");
+      *p = end + 2;
+    } else if ((*p)[0] == '/' && (*p)[1] == '/')
+      *p += strcspn(*p, "\n");
+    else
+      return;
+  }
+}
+
+/* The English table of the Distribution's <localization>, read by
+ * system.localizedString. Other languages are not used. */
+static void read_localization(Package *pkg, xmlNode *dist) {
+  xmlNode *localization = xml_child(dist, "localization");
+  size_t count = 0;
+  int seen = 0;
+  pkg->strings = xcalloc(1, sizeof(char *));
+  for (xmlNode *n = xml_elements(localization); n; n = xml_next_element(n)) {
+    char *language = xml_attr(n, "language", "");
+    int english = !strcmp(language, "English") || !strcmp(language, "en");
+    free(language);
+    if (!english)
+      continue;
+    if (seen++)
+      die("more than one English localization table");
+    char *text = xml_text(n);
+    const char *p = text;
+    for (skip_strings_space(&p); *p; skip_strings_space(&p)) {
+      if (count >= 2048)
+        die("localization strings limit");
+      char *key = strings_token(&p);
+      skip_strings_space(&p);
+      if (*p++ != '=')
+        die("localization strings: expected '=' after \"%s\"", key);
+      skip_strings_space(&p);
+      char *value = strings_token(&p);
+      skip_strings_space(&p);
+      if (*p++ != ';')
+        die("localization strings: expected ';' after \"%s\"", key);
+      for (size_t i = 0; i < count; i += 2)
+        if (!strcmp(pkg->strings[i], key))
+          die("duplicate localization string: %s", key);
+      pkg->strings = xrealloc(pkg->strings, count + 3, sizeof(char *));
+      pkg->strings[count++] = key;
+      pkg->strings[count++] = value;
+      pkg->strings[count] = NULL;
+    }
+    free(text);
+  }
+}
+
+static void distribution_load(Package *pkg, Bytes distribution) {
   pkg->distribution = xml_parse(distribution);
   xmlNode *dist = xmlDocGetRootElement(pkg->distribution);
   if (!xml_is(dist, "installer-script") && !xml_is(dist, "installer-gui-script"))
     die("unsupported Distribution root");
-  if (!xml_child(dist, "choices-outline"))
-    die("Distribution without a choices-outline");
-  const char *unique[] = {"script", "installation-check", "volume-check", "options", "choices-outline"};
+  (void)main_outline(dist);
+  const char *unique[] = {"script", "installation-check", "volume-check", "options", "localization"};
   for (size_t i = 0; i < sizeof(unique) / sizeof(*unique); i++) {
     int seen = 0;
     for (xmlNode *n = xml_elements(dist); n; n = xml_next_element(n))
@@ -604,9 +779,31 @@ void package_load(Package *pkg, const char *path) {
   validate_distribution(pkg, js, dist, 0, require_scripts);
   installer_js_free(js);
   ChoiceList choices = {0};
-  outline_choices(dist, xml_elements(xml_child(dist, "choices-outline")), &choices, 0);
+  outline_choices(dist, xml_elements(main_outline(dist)), &choices, 0);
   check_choices(dist, &choices);
   for (size_t i = 0; i < choices.count; i++)
     free(choices.items[i].id);
   free(choices.items);
+  read_localization(pkg, dist);
+}
+
+void package_load(Package *pkg, const char *path) {
+  *pkg = (Package){.path = path};
+  xar_open(&pkg->xar, path);
+  Bytes distribution = xar_member(&pkg->xar, "Distribution", 0);
+  if (!distribution.data) {
+    load_component(pkg, "", NULL, 0);
+    check_payload_paths(pkg);
+    return;
+  }
+  distribution_load(pkg, distribution);
+}
+
+void package_load_distribution(Package *pkg, const char *path,
+                               const char *pkg_dir) {
+  *pkg = (Package){.path = path, .pkg_dir = pkg_dir};
+  sibling = 1;
+  Bytes distribution = file_read(path, LIMIT_XML);
+  distribution_load(pkg, distribution);
+  free(distribution.data);
 }

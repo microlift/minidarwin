@@ -9,10 +9,17 @@
 
 static const char usage[] =
     "usage: mdpkg -pkg FILE -target DIRECTORY [-script-runner EXECUTABLE]\n"
+    "       mdpkg -dist FILE -pkg-dir DIRECTORY -target DIRECTORY [...]\n"
     "       mdpkg -pkginfo -pkg FILE [-target DIRECTORY]\n"
     "       mdpkg -vers\n"
     "\n"
     "  -pkg FILE               the flat package\n"
+    "  -dist FILE              a standalone Distribution, as a Software Update\n"
+    "                          product has, whose pkg-refs name package files\n"
+    "  -pkg-dir DIRECTORY      where -dist's package files are\n"
+    "  -verify-signature POLICY  refuse any package not signed as POLICY\n"
+    "                          requires; the one policy is\n"
+    "                          apple-software-update\n"
     "  -target DIRECTORY       the root to install into (also -root); \"/\" is\n"
     "                          the running root, installed into in place\n"
     "  -script-runner PROGRAM  run install scripts through PROGRAM; needed for\n"
@@ -43,6 +50,12 @@ static void inspect(const Package *pkg) {
   }
   if (pkg->host_architectures)
     printf("host architectures (not enforced): %s\n", pkg->host_architectures);
+  if (pkg->xar.signer)
+    printf("signed by %s\n", pkg->xar.signer);
+  for (size_t i = 0; i < pkg->count; i++)
+    if (pkg->pkg_dir && pkg->components[i].xar && pkg->components[i].xar->signer)
+      printf("%s signed by %s\n", pkg->components[i].identifier,
+             pkg->components[i].xar->signer);
   if (pkg->allowed_os_versions)
     printf("allowed OS versions (not enforced): %s\n", pkg->allowed_os_versions);
 }
@@ -72,7 +85,8 @@ int main(int argc, char **argv) {
     }
     first = 2;
   }
-  const char *package = NULL, *root = NULL, *runner = NULL;
+  const char *package = NULL, *root = NULL, *runner = NULL, *dist = NULL,
+             *pkg_dir = NULL;
   for (int i = first; i < argc; i++) {
     if (is(argv[i], "-pkginfo") && !pkginfo) {
       pkginfo = 1;
@@ -91,6 +105,9 @@ int main(int argc, char **argv) {
       continue;
     }
     const char **slot = is(argv[i], "-pkg")                ? &package
+                        : is(argv[i], "-dist")             ? &dist
+                        : is(argv[i], "-pkg-dir")          ? &pkg_dir
+                        : is(argv[i], "-verify-signature") ? &opt_signature_policy
                         : is(argv[i], "-target") ||
                                   is(argv[i], "-root")     ? &root
                         : is(argv[i], "-script-runner")    ? &runner
@@ -104,21 +121,28 @@ int main(int argc, char **argv) {
       die("-pkginfo does not install");
     installing = 0;
   }
-  if (!package)
-    die("-pkg is required");
+  if (!package == !dist)
+    die("exactly one of -pkg and -dist is required");
+  if (!dist != !pkg_dir)
+    die("-dist and -pkg-dir go together");
   if (!installing && runner)
     die("inspecting does not take -script-runner");
   if (installing && !root)
     die("-target is required");
 
-  char package_path[PATH_MAX], runner_path[PATH_MAX];
-  if (!realpath(package, package_path))
-    die("%s: %s", package, strerror(errno));
+  char package_path[PATH_MAX], runner_path[PATH_MAX], dir_path[PATH_MAX];
+  if (!realpath(package ? package : dist, package_path))
+    die("%s: %s", package ? package : dist, strerror(errno));
+  if (pkg_dir && !realpath(pkg_dir, dir_path))
+    die("%s: %s", pkg_dir, strerror(errno));
   if (runner && (!realpath(runner, runner_path) || access(runner_path, X_OK)))
     die("script runner %s is not executable", runner);
 
   Package pkg;
-  package_load(&pkg, package_path);
+  if (dist)
+    package_load_distribution(&pkg, package_path, dir_path);
+  else
+    package_load(&pkg, package_path);
   if (installing)
     install_package(&pkg, root, runner ? runner_path : NULL);
   else {

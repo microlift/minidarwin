@@ -1,15 +1,15 @@
 # The same sources built in the host world, to install packages into a rootfs
 # from the build machine (MiniDarwin has no dyld yet, so its own mdpkg cannot
 # run). Adds the macOS sandbox-exec script runner.
-{ lib, stdenv, pkg-config, libxml2, zlib, openssl, python3, bash, coreutils, gnused, gnugrep, findutils, quickjsBuildRoot }:
+{ lib, stdenv, pkg-config, libxml2, zlib, openssl, xz, python3, bash, coreutils, gnused, gnugrep, findutils, quickjsBuildRoot, appleRootCA }:
 
 stdenv.mkDerivation {
   pname = "mdpkg-bootstrap";
   version = "1.0.0";
   src = ./.;
   nativeBuildInputs = [ pkg-config ];
-  buildInputs = [ libxml2 zlib openssl ];
-  makeFlags = [ "QUICKJS=${quickjsBuildRoot}" ];
+  buildInputs = [ libxml2 zlib openssl xz ];
+  makeFlags = [ "QUICKJS=${quickjsBuildRoot}" "APPLE_ROOT_CA=${appleRootCA}" ];
 
   installPhase = ''
     runHook preInstall

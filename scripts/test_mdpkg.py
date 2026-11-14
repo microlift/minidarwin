@@ -5,14 +5,17 @@ The fixtures are built here from the format descriptions, not with Apple's
 tools, and mdpkg is only ever run against temporary roots. MDPKG names the
 binary; MC_PKG optionally names the pinned Midnight Commander package.
 """
+import base64
 import ctypes
 import datetime
 import gzip
 import hashlib
 import json
+import lzma
 import os
 from pathlib import Path
 import plistlib
+import shutil
 import stat
 import struct
 import subprocess
@@ -44,9 +47,29 @@ def cpio(entries, newc=False):
     return bytes(out)
 
 
-def xar(files, algorithm="sha1", named_header=True):
-    """A XAR with zlib members. Algorithms other than sha1/md5 are header
-    type 3 ("other"), named in a 64-byte header unless NAMED_HEADER is off."""
+def pbzx(data, chunk=4096, stored=()):
+    """DATA as pbzx: CHUNK-sized pieces, each an .xz stream unless its index
+    is in STORED. As in Apple's encoder, a piece that xz does not shrink is
+    stored: equal lengths are what mark a chunk as stored."""
+    out = bytearray(b"pbzx" + struct.pack(">Q", chunk))
+    for i in range(0, max(len(data), 1), chunk):
+        piece = data[i:i + chunk]
+        packed = lzma.compress(piece, format=lzma.FORMAT_XZ)
+        if i // chunk in stored or len(packed) >= len(piece):
+            packed = piece
+        out += struct.pack(">QQ", len(piece), len(packed)) + packed
+    return bytes(out)
+
+
+SIGNATURE_SIZE = 256
+
+
+def xar(files, algorithm="sha1", named_header=True, stored=(), sign=None):
+    """A XAR with zlib members, or stored ones for the names in STORED.
+    Algorithms other than sha1/md5 are header type 3 ("other"), named in a
+    64-byte header unless NAMED_HEADER is off. SIGN is (certificates,
+    signer): DER certificates, leaf first, and a function from the TOC
+    checksum to an RSA signature."""
     size = hashlib.new(algorithm).digest_size
     doc = ET.Element("xar")
     toc = ET.SubElement(doc, "toc")
@@ -54,6 +77,14 @@ def xar(files, algorithm="sha1", named_header=True):
     ET.SubElement(check, "offset").text = "0"
     ET.SubElement(check, "size").text = str(size)
     heap = bytearray(b"\0" * size)
+    if sign:
+        signature = ET.SubElement(toc, "signature", style="RSA")
+        ET.SubElement(signature, "offset").text = str(size)
+        ET.SubElement(signature, "size").text = str(SIGNATURE_SIZE)
+        data = ET.SubElement(ET.SubElement(signature, "KeyInfo"), "X509Data")
+        for der in sign[0]:
+            ET.SubElement(data, "X509Certificate").text = base64.encodebytes(der).decode()
+        heap.extend(b"\0" * SIGNATURE_SIZE)
     directories = {"": toc}
     for path, value in files.items():
         parent = ""
@@ -70,16 +101,19 @@ def xar(files, algorithm="sha1", named_header=True):
         ET.SubElement(node, "name").text = bits[-1]
         ET.SubElement(node, "type").text = "file"
         data = ET.SubElement(node, "data")
-        packed = zlib.compress(value)
+        packed = value if path in stored else zlib.compress(value)
         for name, v in [("offset", len(heap)), ("length", len(packed)), ("size", len(value))]:
             ET.SubElement(data, name).text = str(v)
-        ET.SubElement(data, "encoding", style="application/x-gzip")
+        ET.SubElement(data, "encoding", style="application/octet-stream" if path in stored
+                      else "application/x-gzip")
         ET.SubElement(data, "archived-checksum", style=algorithm).text = hashlib.new(algorithm, packed).hexdigest()
         ET.SubElement(data, "extracted-checksum", style=algorithm).text = hashlib.new(algorithm, value).hexdigest()
         heap.extend(packed)
     xml = ET.tostring(doc)
     compressed = zlib.compress(xml)
     heap[:size] = hashlib.new(algorithm, compressed).digest()
+    if sign:
+        heap[size:size + SIGNATURE_SIZE] = sign[1](bytes(heap[:size]))
     kind = {"sha1": 1, "md5": 2}.get(algorithm, 3)
     name = algorithm.encode().ljust(36, b"\0") if kind == 3 and named_header else b""
     header = struct.pack(">4sHHQQI", b"xar!", 28 + len(name), 1, len(compressed), len(xml), kind) + name
@@ -87,10 +121,14 @@ def xar(files, algorithm="sha1", named_header=True):
 
 
 def component_files(entries, *, script=None, location="/", newc=False, payload=None,
-                    identifier="org.minidarwin.test"):
+                    identifier="org.minidarwin.test", groups=None):
     info = ET.Element("pkg-info", {"format-version": "2", "identifier": identifier,
                                    "version": "1.0", "install-location": location, "relocatable": "false"})
     ET.SubElement(info, "payload", numberOfFiles=str(len(entries)))
+    if groups is not None:
+        node = ET.SubElement(info, "groups")
+        for tag, text in groups:
+            ET.SubElement(node, tag).text = text
     files = {"Payload": gzip.compress(cpio(entries, newc)) if payload is None else payload,
              "Bom": b"BOMStore" + b"\0" * 24}
     if script is not None:
@@ -178,6 +216,93 @@ def read_odc(data):
 SCRIPTS_RESERVED = ".mdpkg-scripts"
 
 
+PKI_CONFIG = """[req]
+distinguished_name = dn
+prompt = no
+[dn]
+CN = Test {name}
+[ca]
+basicConstraints = critical,CA:TRUE
+keyUsage = critical,keyCertSign,cRLSign
+[leaf]
+basicConstraints = critical,CA:FALSE
+keyUsage = critical,digitalSignature
+extendedKeyUsage = critical,1.2.840.113635.100.4.1
+[plain]
+basicConstraints = critical,CA:FALSE
+keyUsage = critical,digitalSignature
+"""
+
+
+class TestPKI:
+    """A root, an intermediate and leaves made with the openssl CLI, shaped
+    like Apple's Software Update chain."""
+
+    def __init__(self, directory):
+        self.dir = Path(directory)
+        self.dir.mkdir()
+        self.make("root", None, "ca")
+        self.make("inter", "root", "ca")
+        self.make("leaf", "inter", "leaf")
+        self.make("plain", "inter", "plain")
+        self.make("stranger", None, "ca")
+
+    def openssl(self, *args, data=None):
+        return subprocess.run(["openssl", *args], cwd=self.dir, input=data,
+                              capture_output=True, check=True).stdout
+
+    def make(self, name, issuer, extensions):
+        # LibreSSL ignores -subj when the config sets prompt = no.
+        (self.dir / "pki.cnf").write_text(PKI_CONFIG.format(name=name))
+        if issuer is None:
+            self.openssl("req", "-new", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout",
+                         f"{name}.key", "-out", f"{name}.pem",
+                         "-days", "2", "-config", "pki.cnf", "-extensions", extensions)
+        else:
+            self.openssl("req", "-new", "-newkey", "rsa:2048", "-nodes", "-keyout", f"{name}.key",
+                         "-out", f"{name}.csr", "-config", "pki.cnf")
+            self.openssl("x509", "-req", "-in", f"{name}.csr", "-CA", f"{issuer}.pem", "-CAkey",
+                         f"{issuer}.key", "-set_serial", str(len(list(self.dir.iterdir()))),
+                         "-days", "2", "-extfile", "pki.cnf", "-extensions", extensions,
+                         "-out", f"{name}.pem")
+        self.openssl("x509", "-in", f"{name}.pem", "-outform", "DER", "-out", f"{name}.der")
+
+    def der(self, name):
+        return (self.dir / f"{name}.der").read_bytes()
+
+    def signer(self, leaf):
+        """(certificates, sign) for xar(): LEAF's chain, and its signature."""
+        def sign(checksum):
+            return self.openssl("pkeyutl", "-sign", "-inkey", f"{leaf}.key",
+                                "-pkeyopt", "digest:sha1", data=checksum)
+        return [self.der(leaf), self.der("inter")], sign
+
+
+SU_DISTRIBUTION = """<installer-gui-script minSpecVersion="1">
+  <options hostArchitectures="x86_64,arm64" customize="never"/>
+  <title>SU_TITLE</title>
+  <volume-check><allowed-os-versions><os-version before="27.0" min="26.2"/></allowed-os-versions></volume-check>
+  <tags><tag>DTCommandLineTools</tag></tags>
+  <platforms><client arch="i386"/><server arch="i386"/></platforms>
+  <choices-outline ui="SoftwareUpdate"><line choice="su"/></choices-outline>
+  <choices-outline><line choice="su"/></choices-outline>
+  <choice id="su" start_selected="true" title="SU_TITLE" visible="Or0(my.target.mountpoint)">
+    <pkg-ref id="org.minidarwin.test" auth="Root" packageIdentifier="org.minidarwin.test">REF</pkg-ref>
+  </choice>
+  <script>function Or0(prefix) {
+    if (system.localizedString('SU_TITLE') !== 'Tools 1.0' ||
+        system.localizedString('SU_DESCRIPTION') !== '&lt;p&gt;"quoted"&lt;/p&gt;' ||
+        system.localizedString('MISSING') !== 'MISSING')
+      throw new Error('localization');
+    return true;
+  }</script>
+  <localization><strings language="English">/* comment */ "SU_TITLE" = "Tools 1.0";
+"SU_DESCRIPTION" = '&lt;p&gt;"quoted"&lt;/p&gt;';
+</strings></localization>
+  <pkg-ref id="org.minidarwin.test" installKBytes="1" version="1.0"/>
+</installer-gui-script>"""
+
+
 class InstallerTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix="mdpkg-tests-")
@@ -210,6 +335,154 @@ class InstallerTests(unittest.TestCase):
     def original_intact(self):
         self.assertEqual(sorted(p.name for p in self.root.iterdir()), ["base-file"])
         self.assertEqual((self.root / "base-file").read_bytes(), b"unchanged")
+
+    def test_pbzx_payload_in_a_stored_member(self):
+        blob = os.urandom(5000) + b"x" * 20000
+        entries = [("./data", stat.S_IFDIR | 0o755, b""), ("./data/blob", stat.S_IFREG | 0o644, blob),
+                   ("./data/link", stat.S_IFLNK | 0o777, b"blob")]
+        files = component_files(entries, payload=pbzx(cpio(entries), chunk=4096, stored={1}))
+        self.pkg.write_bytes(xar(files, stored={"Payload"}))
+        self.install()
+        self.assertEqual((self.root / "data/blob").read_bytes(), blob)
+        self.assertEqual(os.readlink(self.root / "data/link"), "blob")
+
+    def test_corrupt_pbzx(self):
+        good = pbzx(cpio(self.entries), chunk=256)
+        longer = bytearray(good)
+        longer[19] += 1  # the first chunk claims one more decoded byte
+        stray = bytearray(good)
+        stray[-1] ^= 0xff
+        for payload in [bytes(longer), good[:-5], good + b"\0\0\0", bytes(stray),
+                        b"pbzx" + struct.pack(">Q", 1 << 40)]:
+            with self.subTest(payload=payload[:24]):
+                self.pkg.write_bytes(xar(component_files(self.entries, payload=payload),
+                                         stored={"Payload"}))
+                self.install(ok=False)
+                self.original_intact()
+
+    def test_signature_policy(self):
+        pki = TestPKI(self.base / "pki")
+        files = component_files(self.entries)
+        anchor = {"MDPKG_TEST_SIGNATURE_ANCHOR": str(pki.dir / "root.der")}
+        policy = ("-verify-signature", "apple-software-update")
+
+        self.pkg.write_bytes(xar(files, sign=pki.signer("leaf")))
+        inspect = self.run_cli("-pkginfo", "-pkg", str(self.pkg), *policy, env=anchor)
+        self.assertIn("signed by /CN=Test leaf", inspect.stdout)
+        stranger = {"MDPKG_TEST_SIGNATURE_ANCHOR": str(pki.dir / "stranger.der")}
+        self.assertIn("does not verify", self.run_cli(
+            "-pkginfo", "-pkg", str(self.pkg), *policy, env=stranger, ok=False).stderr)
+        # The shipped anchor is Apple's, which signed none of these.
+        self.run_cli("-pkginfo", "-pkg", str(self.pkg), *policy, ok=False)
+        self.run_cli("-pkginfo", "-pkg", str(self.pkg), "-verify-signature", "nobody",
+                     env=anchor, ok=False)
+
+        signed = bytearray(self.pkg.read_bytes())
+        header, packed = struct.unpack(">H", signed[4:6])[0], struct.unpack(">Q", signed[8:16])[0]
+        signed[header + packed + 20 + 7] ^= 1
+        self.pkg.write_bytes(bytes(signed))
+        self.assertIn("does not match", self.run_cli(
+            "-pkginfo", "-pkg", str(self.pkg), *policy, env=anchor, ok=False).stderr)
+
+        self.pkg.write_bytes(xar(files, sign=pki.signer("plain")))
+        self.assertIn("usage", self.run_cli(
+            "-pkginfo", "-pkg", str(self.pkg), *policy, env=anchor, ok=False).stderr)
+
+        self.pkg.write_bytes(xar(files))
+        self.assertIn("not signed", self.run_cli(
+            "-pkginfo", "-pkg", str(self.pkg), *policy, env=anchor, ok=False).stderr)
+        self.run_cli("-pkginfo", "-pkg", str(self.pkg))
+
+        self.pkg.write_bytes(xar(files, sign=pki.signer("leaf")))
+        self.run_cli("install", "-pkg", str(self.pkg), "-root", str(self.root), *policy, env=anchor)
+        self.assertTrue((self.root / "usr/bin/tool").exists())
+
+    def su_product(self, ref="component.pkg", version="26.6", distribution=SU_DISTRIBUTION):
+        product = self.base / "product"
+        product.mkdir(exist_ok=True)
+        (product / "component.pkg").write_bytes(xar(component_files(self.entries)))
+        dist = product / "product.dist"
+        dist.write_text(distribution.replace("REF", ref))
+        plist = self.root / "System/Library/CoreServices/SystemVersion.plist"
+        if version:
+            plist.parent.mkdir(parents=True, exist_ok=True)
+            plist.write_bytes(plistlib.dumps({"ProductVersion": version}))
+        return dist, product
+
+    def install_dist(self, dist, product, *extra, ok=True):
+        return self.run_cli("-dist", str(dist), "-pkg-dir", str(product), "-target",
+                            str(self.root), *extra, ok=ok)
+
+    def test_software_update_distribution(self):
+        dist, product = self.su_product()
+        self.install_dist(dist, product)
+        self.assertEqual((self.root / "usr/bin/tool").read_bytes(), b"hello\n")
+        receipt = plistlib.loads((self.root / "private/var/db/receipts/org.minidarwin.test.plist").read_bytes())
+        self.assertEqual(receipt["PackageFileName"], "component.pkg")
+
+    def test_software_update_distribution_refusals(self):
+        cases = [
+            ({"version": "25.0"}, "allowed-os-versions"),
+            ({"version": "27.0"}, "allowed-os-versions"),
+            ({"version": None}, "macOS version"),
+            ({"ref": "#component.pkg"}, "package file name"),
+            ({"ref": "sub/component.pkg"}, "package file name"),
+            ({"ref": "https://example.invalid/component.pkg"}, "package file name"),
+            ({"distribution": SU_DISTRIBUTION.replace(' ui="SoftwareUpdate"', "")}, "duplicate"),
+            ({"distribution": SU_DISTRIBUTION.replace("'Tools 1.0'", "'other'")}, "localization"),
+            ({"distribution": SU_DISTRIBUTION.replace('"Tools 1.0";', '"Tools 1.0"')}, "expected ';'"),
+        ]
+        for kwargs, diagnostic in cases:
+            with self.subTest(**{k: str(v)[:40] for k, v in kwargs.items()}):
+                shutil.rmtree(self.root / "System", ignore_errors=True)
+                dist, product = self.su_product(**kwargs)
+                self.assertIn(diagnostic, self.install_dist(dist, product, ok=False).stderr)
+                self.assertFalse((self.root / "usr").exists())
+        dist, product = self.su_product()
+        self.run_cli("-dist", str(dist), "-target", str(self.root), ok=False)
+        (product / "component.pkg").write_bytes(self.pkg.read_bytes() if self.pkg.exists() else b"")
+        files = {"Distribution": distribution(("org.minidarwin.test", "inner.pkg")).encode()}
+        files.update({"inner.pkg/" + k: v for k, v in component_files(self.entries).items()})
+        (product / "component.pkg").write_bytes(xar(files))
+        self.assertIn("component package", self.install_dist(dist, product, ok=False).stderr)
+
+    def test_components_may_share_identical_files(self):
+        marker = [("./private", stat.S_IFDIR | 0o755, b""),
+                  ("./private/tmp", stat.S_IFDIR | 0o755, b""),
+                  ("./private/tmp/.marker", stat.S_IFREG | 0o644, b"same\n")]
+        def product(second):
+            files = {}
+            for ident, directory, entries in [("org.minidarwin.a", "a.pkg", marker),
+                                              ("org.minidarwin.b", "b.pkg", second)]:
+                files.update({f"{directory}/{k}": v for k, v in
+                              component_files(entries, identifier=ident).items()})
+            files["Distribution"] = distribution(("org.minidarwin.a", "a.pkg"),
+                                                 ("org.minidarwin.b", "b.pkg")).encode()
+            self.pkg.write_bytes(xar(files, stored={"a.pkg/Payload", "b.pkg/Payload"}))
+        product([*marker[:2], ("./private/tmp/.marker", stat.S_IFREG | 0o644, b"other\n")])
+        self.assertIn("duplicate path", self.install(ok=False).stderr)
+        self.original_intact()
+        product([*marker[:2], ("./private/tmp/.marker", stat.S_IFREG | 0o600, b"same\n")])
+        self.install(ok=False)
+        product(marker)
+        self.install()
+        self.assertEqual((self.root / "private/tmp/.marker").read_bytes(), b"same\n")
+        for ident in ["a", "b"]:
+            inventory = plistlib.loads((self.root / f"private/var/db/mdpkg/org.minidarwin.{ident}.inventory.plist").read_bytes())
+            self.assertIn("private/tmp/.marker", [e["path"] for e in inventory["Entries"]])
+
+    def test_package_groups(self):
+        self.package(groups=[("group", "com.apple.FindSystemFiles.pkg-group")])
+        self.install()
+        inventory = plistlib.loads((self.root / "private/var/db/mdpkg/org.minidarwin.test.inventory.plist").read_bytes())
+        self.assertEqual(inventory["PackageGroups"], ["com.apple.FindSystemFiles.pkg-group"])
+        receipt = plistlib.loads((self.root / "private/var/db/receipts/org.minidarwin.test.plist").read_bytes())
+        self.assertNotIn("PackageGroups", receipt)
+        for groups in [[("other", "x")], [("group", "bad/id")]]:
+            shutil.rmtree(self.root / "private", ignore_errors=True)
+            shutil.rmtree(self.root / "usr", ignore_errors=True)
+            self.package(groups=groups)
+            self.install(ok=False)
 
     def test_install_modes_links_receipts_and_inventory(self):
         self.package()
@@ -784,7 +1057,7 @@ else:
                     self.assertEqual(before, self.root_state())
 
     def test_js_unsupported_apis_are_explicit(self):
-        for expression in ["system.run('x')", "system.runOnce('x')", "system.localizedString('x')",
+        for expression in ["system.run('x')", "system.runOnce('x')", "system.localizedStringWithFormat('x')",
             "system.defaults.foo", "system.applications.foo", "system.ioregistry.foo", "system.users",
             "my.packageUpgradeAction", "system.sysctl('kern.unsupported')",
             "system.compareVersions('1beta','2')"]:
@@ -878,9 +1151,11 @@ else:
 
     def test_components_may_not_overlap(self):
         files = {}
-        for ident in ("org.minidarwin.one", "org.minidarwin.two"):
+        other = [*self.entries[:2], ("./usr/bin/tool", stat.S_IFREG | 0o755, b"other\n"),
+                 self.entries[3]]
+        for ident, entries in (("org.minidarwin.one", self.entries), ("org.minidarwin.two", other)):
             files.update({f"{ident}.pkg/{name}": data for name, data in
-                          component_files(self.entries, identifier=ident).items()})
+                          component_files(entries, identifier=ident).items()})
         files["Distribution"] = distribution(("org.minidarwin.one", "org.minidarwin.one.pkg"),
                                              ("org.minidarwin.two", "org.minidarwin.two.pkg")).encode()
         self.pkg.write_bytes(xar(files))

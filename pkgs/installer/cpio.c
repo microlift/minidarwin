@@ -1,6 +1,7 @@
-/* Payload and Scripts archives: raw or gzip-compressed CPIO in the odc
- * (070707), newc (070701) or crc (070702) formats. pbzx and other
- * compressions are refused. */
+/* Payload and Scripts archives: CPIO in the odc (070707), newc (070701) or
+ * crc (070702) formats, raw or compressed (stream.c). The archive is read
+ * front to back once; with a spool, file contents go to disk as they are
+ * read, so a payload never has to fit in memory. */
 #include "mdpkg.h"
 
 #include <limits.h>
@@ -23,6 +24,12 @@ typedef struct {
   int aligned; /* newc/crc pad the name and data to 4 bytes */
   int has_crc;
 } Header;
+
+static void read_exact(Stream *s, unsigned char *buf, size_t len,
+                       const char *what) {
+  if (stream_read(s, buf, len) != len)
+    die("truncated CPIO %s", what);
+}
 
 static void read_header(const unsigned char *h, size_t avail, Header *out) {
   if (avail < 6)
@@ -65,7 +72,7 @@ static int is_appledouble(const char *path) {
   return 0;
 }
 
-static Entry make_entry(const Header *h, const char *name, Bytes data) {
+static Entry make_entry(const Header *h, const char *name) {
   char *path = path_normalize(name, 0);
   mode_t type = (mode_t)h->mode & S_IFMT;
   if (is_appledouble(path))
@@ -81,69 +88,101 @@ static Entry make_entry(const Header *h, const char *name, Bytes data) {
     die("hardlinks are not supported: %s", path);
   if (h->mode & (S_ISUID | S_ISGID))
     die("set-id payloads are not supported: %s", path);
-  if (type == S_IFDIR && data.len)
+  if (type == S_IFDIR && h->filesize)
     die("directory with data: %s", path);
-  if (h->has_crc) {
-    uint32_t sum = 0;
-    for (size_t i = 0; i < data.len; i++)
-      sum += data.data[i];
-    if (sum != h->check)
-      die("CPIO checksum mismatch: %s", path);
-  }
-  Entry e = {.path = path, .mode = (mode_t)h->mode, .uid = (uid_t)h->uid,
-             .gid = (gid_t)h->gid, .mtime = (time_t)h->mtime};
-  if (type == S_IFLNK) {
-    if (!data.len || memchr(data.data, 0, data.len) || data.len >= PATH_MAX)
-      die("invalid symlink: %s", path);
-    e.link = xstrndup((const char *)data.data, data.len);
-    symlink_check_lexical(path, e.link);
-  } else if (type == S_IFREG) {
-    e.data = (Bytes){xcalloc(data.len, 1), data.len};
-    memcpy(e.data.data, data.data, data.len);
-  }
-  return e;
+  if (type == S_IFLNK && (!h->filesize || h->filesize >= PATH_MAX))
+    die("invalid symlink: %s", path);
+  return (Entry){.path = path, .mode = (mode_t)h->mode, .uid = (uid_t)h->uid,
+                 .gid = (gid_t)h->gid, .mtime = (time_t)h->mtime,
+                 .size = h->filesize};
 }
 
-void cpio_parse(Bytes archive, EntryList *out) {
-  int gzipped = archive.len >= 2 && archive.data[0] == 0x1f &&
-                archive.data[1] == 0x8b;
-  Bytes b = gzipped ? inflate_limited(archive, 31, 0, LIMIT_MEMBER) : archive;
-  size_t pos = 0;
-  int trailer = 0;
-  while (pos < b.len && !trailer) {
+/* Reads an entry's data: a symlink's target, or a file's contents into the
+ * spool (or memory, without one). */
+static void read_data(Stream *s, const Header *h, Entry *e, Spool *spool) {
+  uint32_t sum = 0;
+  if (S_ISLNK(e->mode)) {
+    char *target = xcalloc((size_t)h->filesize + 1, 1);
+    read_exact(s, (unsigned char *)target, (size_t)h->filesize, "data");
+    for (size_t i = 0; i < h->filesize; i++)
+      sum += (unsigned char)target[i];
+    if (memchr(target, 0, (size_t)h->filesize))
+      die("invalid symlink: %s", e->path);
+    e->link = target;
+    symlink_check_lexical(e->path, e->link);
+  } else if (S_ISREG(e->mode)) {
+    if (spool) {
+      if (h->filesize > LIMIT_SPOOLED - spool->used)
+        die("payload exceeds the spool limit");
+      e->spool = spool;
+      e->spool_offset = spool->used;
+    } else {
+      if (h->filesize > LIMIT_MEMBER)
+        die("CPIO file too large to hold in memory: %s", e->path);
+      decoded_account((size_t)h->filesize);
+      e->data = (Bytes){xcalloc((size_t)h->filesize, 1), (size_t)h->filesize};
+    }
+    unsigned char buf[1 << 16];
+    for (uint64_t done = 0; done < h->filesize;) {
+      size_t n = h->filesize - done > sizeof(buf) ? sizeof(buf)
+                                                  : (size_t)(h->filesize - done);
+      read_exact(s, buf, n, "data");
+      for (size_t i = 0; i < n; i++)
+        sum += buf[i];
+      if (spool)
+        spool_write(spool, buf, n);
+      else
+        memcpy(e->data.data + done, buf, n);
+      done += n;
+    }
+  }
+  if (h->has_crc && sum != h->check)
+    die("CPIO checksum mismatch: %s", e->path);
+}
+
+static void skip_padding(Stream *s, uint64_t consumed, int aligned) {
+  unsigned char pad[4];
+  size_t n = aligned ? (size_t)((4 - consumed % 4) % 4) : 0;
+  read_exact(s, pad, n, "padding");
+}
+
+void cpio_parse(Bytes archive, EntryList *out, Spool *spool) {
+  Stream *s = stream_open(archive);
+  unsigned char header[110];
+  char *name = xcalloc(PATH_MAX, 1);
+  for (;;) {
+    size_t got = stream_read(s, header, 6);
+    if (got < 6)
+      die(got ? "truncated CPIO header" : "missing CPIO trailer");
+    if (memcmp(header, "070707", 6) && memcmp(header, "070701", 6) &&
+        memcmp(header, "070702", 6))
+      die("unsupported payload format or compression");
+    size_t len = !memcmp(header, "070707", 6) ? 76 : 110;
+    read_exact(s, header + 6, len - 6, "header");
     Header h;
-    read_header(b.data + pos, b.len - pos, &h);
-    size_t name_at = pos + h.header_len;
-    if (!h.namesize || h.namesize >= PATH_MAX ||
-        h.namesize > b.len - name_at)
+    read_header(header, len, &h);
+    if (!h.namesize || h.namesize >= PATH_MAX)
       die("CPIO name out of bounds");
-    const char *name = (const char *)b.data + name_at;
+    read_exact(s, (unsigned char *)name, (size_t)h.namesize, "name");
     if (name[h.namesize - 1] || memchr(name, 0, (size_t)h.namesize - 1))
       die("invalid CPIO name");
-    size_t data_at = name_at + (size_t)h.namesize;
-    if (h.aligned)
-      data_at = (data_at + 3) & ~(size_t)3;
-    if (data_at > b.len || h.filesize > b.len - data_at)
-      die("CPIO data out of bounds");
-    pos = data_at + (size_t)h.filesize;
-    if (h.aligned)
-      pos = (pos + 3) & ~(size_t)3;
-    if (pos > b.len)
-      die("truncated CPIO padding");
+    skip_padding(s, h.header_len + h.namesize, h.aligned);
     if (!strcmp(name, "TRAILER!!!")) {
       if (h.filesize)
         die("invalid CPIO trailer");
-      trailer = 1;
-    } else
-      entries_append(out, make_entry(&h, name,
-                                     (Bytes){b.data + data_at, h.filesize}));
+      break;
+    }
+    Entry e = make_entry(&h, name);
+    read_data(s, &h, &e, spool);
+    skip_padding(s, h.filesize, h.aligned);
+    entries_append(out, e);
   }
-  if (!trailer)
-    die("missing CPIO trailer");
-  for (; pos < b.len; pos++)
-    if (b.data[pos])
-      die("data after CPIO trailer");
-  if (gzipped)
-    free(b.data);
+  unsigned char rest[4096];
+  for (size_t n; (n = stream_read(s, rest, sizeof(rest)));)
+    for (size_t i = 0; i < n; i++)
+      if (rest[i])
+        die("data after CPIO trailer");
+  stream_close(s);
+  free(name);
   entries_check_paths(out, 0);
 }
