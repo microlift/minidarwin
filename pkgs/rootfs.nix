@@ -3,7 +3,7 @@
 # the shell_cmds, file_cmds, text_cmds, adv_cmds, basic_cmds, system_cmds,
 # patch_cmds and misc_cmds tools, awk, file, curl, rsync, top, nano/pico, bash, Perl,
 # zsh, bzip2, zip/unzip and ncurses' own; the libraries they link (libedit, libncurses,
-# libutil, libsbuf, libmd, libz, libbz2, ICU, libxml2, libxo, libffi); QuickJS; the
+# libutil, libsbuf, libmd, libz, libbz2, liblzma, ICU, libxml2, libxo, libffi); QuickJS; the
 # Swift runtime (/usr/lib/swift/libswiftCore.dylib) with the Darwin overlay,
 # _StringProcessing and Foundation's Swift half beside it; Mesa's GLU; LibreSSL as primary TLS
 # and a complete OpenSSL 0.9.8 install under /compat/OS X/10.7 (on x86_64,
@@ -43,6 +43,7 @@
 , curl
 , zlib
 , bzip2
+, liblzma
 , libarchive
 , zip
 , icu
@@ -82,7 +83,7 @@
 let
   swiftLibraries = [ libswiftDarwin libswiftBuiltinFloat libswiftRegexParser libswiftStringProcessing libswiftFoundation ];
   cmds = [ shellCmds fileCmds textCmds advCmds basicCmds systemCmds networkCmds patchCmds miscCmds awk file curl rsync top nano bash darwinPerl zsh ncursesTools su sudo installer dscl quickjs sqlite launchd open ];
-  members = [ libSystem libsystemTree2 libcxxDylib libcxxabiDylib copyfile removefile ncurses ncursesPanel terminfo certPem files libedit libutil libsbuf libmd libffi libswiftCore zlib bzip2 libarchive zip icu libxml2 libxo libressl openssl098 libglu ] ++ swiftLibraries ++ cmds
+  members = [ libSystem libsystemTree2 libcxxDylib libcxxabiDylib copyfile removefile ncurses ncursesPanel terminfo certPem files libedit libutil libsbuf libmd libffi libswiftCore zlib bzip2 liblzma libarchive zip icu libxml2 libxo libressl openssl098 libglu ] ++ swiftLibraries ++ cmds
     ++ lib.optional (libstdcxx != null) libstdcxx
     ++ lib.optional (runtimeDyld != null) runtimeDyld;
 

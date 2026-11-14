@@ -440,9 +440,13 @@ lib.makeScope pkgs.newScope (self: with self; {
     inherit copyfile;
   };
 
+  liblzma = callPackage ./pkgs/xz/liblzma.nix {
+    toolchain = toolchainStage3;
+  };
+
   libarchive = callPackage ./pkgs/libarchive/libarchive.nix {
     toolchain = toolchainStage3;
-    inherit zlib bzip2 copyfile;
+    inherit zlib bzip2 liblzma copyfile;
   };
 
   zip = callPackage ./pkgs/zip/zip.nix {

@@ -207,6 +207,18 @@ in
     url = "https://github.com/libarchive/libarchive/releases/download/v3.8.9/libarchive-3.8.9.tar.xz";
     hash = "sha256-iIyTT52VZI7LkWPcjiOrgKR27LgajxFUcEoie1tnbd4=";
   };
+  # Apple does not publish its liblzma source; macOS 26 ships XZ Utils 5.4.3 as
+  # /usr/lib/liblzma.5.dylib. 5.4.7 is the last release of that series, and
+  # the only one after 5.4.2 signed by its original maintainer.
+  xz = fetchurl {
+    url = "https://github.com/tukaani-project/xz/releases/download/v5.4.7/xz-5.4.7.tar.gz";
+    hash = "sha256-jbZmTEjKB5CLkrrtz+fzuiP0nvJHaGRRirXbZyODbnE=";
+  };
+  # Upstream's fix for CVE-2025-31115 (threaded decoder), for 5.3.3alpha-5.8.0.
+  xzCve202531115 = fetchurl {
+    url = "https://github.com/tukaani-project/xz/releases/download/v5.4.7/xz-cve-2025-31115.patch";
+    hash = "sha256-7hiOq8MiBoRCL2LfejhVQahtKlw4VAf52P2U1JslHE4=";
+  };
   # Apple does not release its libsqlite3 source; this is upstream's latest
   # release, as the amalgamation (sqlite3.c, sqlite3.h, shell.c).
   sqlite = fetchurl {

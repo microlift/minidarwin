@@ -1,8 +1,8 @@
 # libarchive 3.8.9's bsdtar, installed as /usr/bin/tar (and bsdtar). libarchive
 # itself is linked in statically: nothing else in MiniDarwin consumes it, and
 # the tree stays free of a dylib with no Apple-shaped install name. Only zlib
-# and libbz2 are enabled; xz, zstd, lz4, OpenSSL, iconv and XML are absent.
-{ lib, mkDarwinPackage, sources, toolchain, gnumake, zlib, bzip2, copyfile }:
+# libbz2 and liblzma are enabled; zstd, lz4, OpenSSL, iconv and XML are absent.
+{ lib, mkDarwinPackage, sources, toolchain, gnumake, zlib, bzip2, liblzma, copyfile }:
 
 let
   allowUndefined = {
@@ -37,8 +37,8 @@ mkDarwinPackage {
 
   configurePhase = ''
     runHook preConfigure
-    export CPPFLAGS="-I${zlib}/usr/include -I${bzip2.headers}/usr/include"
-    export LDFLAGS="-L${zlib}/usr/lib -L${bzip2}/usr/lib -L${copyfile}/usr/lib ${lib.concatStringsSep " " (map (s: "-Wl,-U,${s}") (lib.attrNames allowUndefined))}"
+    export CPPFLAGS="-I${zlib}/usr/include -I${bzip2.headers}/usr/include -I${liblzma}/usr/include"
+    export LDFLAGS="-L${zlib}/usr/lib -L${bzip2}/usr/lib -L${liblzma}/usr/lib -L${copyfile}/usr/lib ${lib.concatStringsSep " " (map (s: "-Wl,-U,${s}") (lib.attrNames allowUndefined))}"
     export LIBS="-lcopyfile"
     export PKG_CONFIG=false
     ./configure \
@@ -53,7 +53,7 @@ mkDarwinPackage {
       --disable-xattr \
       --with-zlib \
       --with-bz2lib \
-      --without-lzma \
+      --with-lzma \
       --without-lzo2 \
       --without-lz4 \
       --without-zstd \
@@ -82,6 +82,9 @@ mkDarwinPackage {
     install -Dm644 tar/bsdtar.1 "$out/usr/share/man/man1/bsdtar.1"
     ln -s bsdtar.1 "$out/usr/share/man/man1/tar.1"
     install -Dm644 COPYING "$out/usr/share/licenses/libarchive/COPYING"
+    # configure quietly drops a --with library it cannot link.
+    $OTOOL -L "$out/usr/bin/bsdtar" | grep -q '/usr/lib/liblzma.5.dylib' || {
+      echo "libarchive: bsdtar was built without liblzma" >&2; exit 1; }
     md_verify_pure "$out/usr/bin/bsdtar"
     md_verify_signed "$out/usr/bin/bsdtar"
     runHook postInstall
