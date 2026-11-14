@@ -17,6 +17,7 @@
 , libedit
 , libutil
 , libsbuf
+, libresolv
 , libxo
 , bison
 }:
@@ -198,6 +199,8 @@ let
         { pkg = libutil; l = "util"; }
         { pkg = libxo; l = "xo"; }
         { pkg = libsbuf; l = "sbuf"; }
+        # OTHER_LDFLAGS[sdk=macosx*] = -lresolv: <resolv.h>'s res_init.
+        { pkg = libresolv; l = "resolv"; }
       ];
       man = {
         "w/w.1" = "/usr/share/man/man1/w.1";
@@ -211,9 +214,6 @@ let
         "_freeaddrinfo" = "system_info";
         "_getaddrinfo" = "system_info";
         "_getnameinfo" = "system_info";
-        # <resolv.h>'s res_init; libresolv's, not Libinfo's.
-        "___res_9_state" = "resolv";
-        "_res_9_init" = "resolv";
       };
     };
     what = { };

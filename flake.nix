@@ -75,6 +75,7 @@
             libsbuf
             fileCmds
             libmd
+            libresolv
             textCmds
             advCmds
             basicCmds

@@ -15,6 +15,7 @@
 , copyfile
 , libutil
 , libsbuf
+, libresolv
 , libmd
 , commonCryptoHeaders
 }:
@@ -38,11 +39,12 @@ mkCmds {
 
   tools.openrsync = {
     product = "rsync";
-    # Frameworks phase: libresolv.9, libutil, libresolv, libsbuf. libresolv is
-    # not built (its b64_ntop is a hole, below). copyfile(3) is a libSystem
-    # member on macOS; here it is its own dylib, as file_cmds links it.
+    # Frameworks phase: libresolv.9, libutil, libresolv, libsbuf (both
+    # libresolv entries are the one dylib). copyfile(3) is a libSystem member
+    # on macOS; here it is its own dylib, as file_cmds links it.
     libraries = [
       { pkg = copyfile; l = "copyfile"; }
+      { pkg = libresolv; l = "resolv"; }
       { pkg = libutil; l = "util"; }
       { pkg = libsbuf; l = "sbuf"; }
     ];
@@ -83,8 +85,6 @@ mkCmds {
       // lib.genAttrs [ "_os_log_create" "__os_log_internal" ] (_: "system_trace")
       // {
         "_os_variant_has_internal_content" = "system_darwin"; # see variantHeader
-        # <resolv.h>'s b64_ntop: daemon password challenges. libresolv's.
-        "_res_9_b64_ntop" = "resolv";
       }
       # The block and file checksums: md4.h's MD4_* through libmd's macros.
       // lib.genAttrs (map (f: "_CC_MD4_${f}") [ "Init" "Update" "Final" ]) (_: "commonCrypto");

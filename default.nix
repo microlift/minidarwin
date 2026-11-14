@@ -348,6 +348,11 @@ lib.makeScope pkgs.newScope (self: with self; {
     toolchain = toolchainStage3;
   };
 
+  # libresolv.9.dylib: the BIND resolver, what w and rsync link.
+  libresolv = callPackage ./pkgs/libresolv/libresolv.nix {
+    toolchain = toolchainStage3;
+  };
+
   libsbuf = callPackage ./pkgs/compat/sbuf/libsbuf.nix {
     toolchain = toolchainStage3;
   };

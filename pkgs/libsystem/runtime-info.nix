@@ -11,7 +11,6 @@ let
     "Libinfo/od_debug.c" = "os/variant_private.h is libsystem_darwin's; only DS_AVAILABLE code logs through it";
     "gen.subproj/configuration_profile.c" = "xpc (closed source)";
     "lookup.subproj/mdns_module.c" = "dns_sd_private.h, mDNSResponder's (system_dnssd, closed source)";
-    "dns.subproj/res_query.c" = "dns_sd.h, mDNSResponder's (system_dnssd, closed source)";
   };
   files = import ./libinfo-sources.nix;
   compiled = lib.filter (f: !(notCompiled ? ${f})) files;
@@ -36,6 +35,10 @@ mkDarwinPackage {
     cp rpc.subproj/{auth,auth_unix,clnt,rpc,rpc_msg,svc,svc_auth,types,xdr}.h \
       rpc.subproj/{pmap_clnt,pmap_prot,pmap_rmt}.h hdrs/rpc/
     cp nis.subproj/{yp_prot,ypclnt}.h hdrs/rpcsvc/
+    # res_query.c includes <dns_sd.h> but calls none of it (its queries go
+    # through the mdns search module). mDNSResponder's public header, never
+    # the SDK; libsystem_dnssd itself is closed source.
+    cp ${sources.mDNSResponder}/mDNSShared/dns_sd.h hdrs/
     # Librpcsvc's <rpcsvc/yp.h> and <rpcsvc/yppasswd.h>, which the NIS
     # sources also include.
     for x in yp yppasswd; do
@@ -81,6 +84,7 @@ mkDarwinPackage {
       _endgrent _setgroupent _getgrouplist _getgroupcount _initgroups \
       _getifaddrs _freeifaddrs _if_nametoindex _innetgr _getdomainname \
       _mbr_uid_to_uuid _mbr_gid_to_uuid _mbr_uuid_to_id \
-      _mbr_identifier_to_uuid _mbr_identifier_translate
+      _mbr_identifier_to_uuid _mbr_identifier_translate \
+      __res _res_init _res_query _res_search
   '';
 }

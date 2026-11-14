@@ -103,6 +103,14 @@ in
     "sha256-4E0LsE6b83AqP90tpIhnRdtSekToY7JUWa7lQ3+y3WI=";
   libresolv = apple "libresolv" "libresolv-96"
     "sha256-MAfzoyww1UK0o5TJ7XI4A9vi1T09Nz6Yb9iMrS/wX78=";
+  # Headers only, for libresolv's <dnsinfo.h> (dns_configuration_copy & co.,
+  # which libsystem_info defines on macOS). Nothing is compiled from it.
+  configd = apple "configd" "configd-1405.120.5"
+    "sha256-hc0rXqjYLiDEXIYbTZ3M0tmzanzn41ux3Xjb+Y0kRuA=";
+  # Headers only, for libresolv's <dns_sd.h> (res_query.c's DNSServiceQueryRecord
+  # path; libsystem_dnssd is closed source). Nothing is compiled from it.
+  mDNSResponder = apple "mDNSResponder" "mDNSResponder-2881.120.11"
+    "sha256-pcKihkKBpvS+If4j2tslG/cr8AbboAVRSFEnRJSUJSI=";
   libutil = apple "libutil" "libutil-73"
     "sha256-64+1CIRpYBon7skJRKdaXcxucPh9GrhAbUERhL2PLXA=";
   # libmd.dylib: md5(1) and install(1) digests. Its functions are wrappers
