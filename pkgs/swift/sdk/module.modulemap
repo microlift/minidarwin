@@ -1,0 +1,44 @@
+// Clang modules for Swift's importer, minidarwin's own: Apple's SDK ships its
+// module maps, and the released sources do not. Each header is owned by the
+// module that names it, so a module whose headers others include (os/base.h,
+// os/object.h's ObjectiveC) sits below them rather than in Darwin's umbrella.
+
+module Darwin [system] [extern_c] {
+  umbrella header "_DarwinUmbrella.h"
+  export *
+
+  explicit module sysdir {
+    header "sysdir.h"
+    export *
+  }
+}
+
+module os [system] [extern_c] {
+  header "os/object.h"
+  header "os/lock.h"
+  export *
+
+  explicit module log {
+    header "os/log.h"
+    export *
+  }
+}
+
+module MachO [system] [extern_c] {
+  header "mach-o/loader.h"
+  header "mach-o/nlist.h"
+  header "mach-o/fat.h"
+  header "mach-o/getsect.h"
+  export *
+
+  module dyld {
+    header "mach-o/dyld.h"
+    export *
+  }
+}
+
+module ObjectiveC [system] [extern_c] {
+  umbrella "objc"
+  export *
+  module * { export * }
+}

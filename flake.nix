@@ -95,6 +95,12 @@
             quickjs
             libffi
             libswiftCore
+            swiftSdk
+            libswiftDarwin
+            libswiftBuiltinFloat
+            libswiftStringProcessing
+            libswiftRegexParser
+            libswiftFoundation
             sqlite
             libglu
             libressl

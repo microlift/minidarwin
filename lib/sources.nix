@@ -267,6 +267,31 @@ in
     hash = "sha256-7/jT/U0sOsr4iWnCluyUWjnD/XH5CnPyAG9EQ+Nq+tI=";
     name = "swift-src";
   };
+  # The Swift libraries beside the runtime, at the runtime's release:
+  # _StringProcessing and _RegexParser (stdlib/public/StringProcessing builds
+  # them from this repository), and swift-foundation with the
+  # swift-collections tag its CMakeLists.txt fetches.
+  swiftStringProcessing = fetchFromGitHub {
+    owner = "swiftlang";
+    repo = "swift-experimental-string-processing";
+    rev = "swift-6.3.3-RELEASE";
+    hash = "sha256-ENnaw/1UN9PnVLTZujtpfGs5d1e3Z+5Z6EjiwM/8alU=";
+    name = "swift-string-processing-src";
+  };
+  swiftFoundation = fetchFromGitHub {
+    owner = "swiftlang";
+    repo = "swift-foundation";
+    rev = "swift-6.3.3-RELEASE";
+    hash = "sha256-sXlA1n7SmgneUxsS7+/xNwbIOyGvLmofNXxrIG1Pq9w=";
+    name = "swift-foundation-src";
+  };
+  swiftCollections = fetchFromGitHub {
+    owner = "apple";
+    repo = "swift-collections";
+    rev = "1.1.6";
+    hash = "sha256-+f9Azcl+NbDvxlMsX0UbT3n87aYaBR1Kjp3rDqoLgkA=";
+    name = "swift-collections-src";
+  };
   # Headers only, for the Swift runtime's Objective-C interop: <objc/*.h>
   # (objc4's Public headers) and <asl.h>; CoreFoundation's are `CF` above.
   # libobjc and libsystem_asl are not built; their symbols are the runtime's

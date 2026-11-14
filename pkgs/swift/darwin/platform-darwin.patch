@@ -1,0 +1,28 @@
+--- a/stdlib/public/Platform/Platform.swift
++++ b/stdlib/public/Platform/Platform.swift
+@@ -252,7 +252,12 @@
+ // signal.h
+ //===----------------------------------------------------------------------===//
+ 
+-#if os(OpenBSD) || os(FreeBSD)
++#if os(macOS) || os(iOS) || os(watchOS) || os(tvOS) || os(visionOS)
++public var SIG_DFL: sig_t? { return nil }
++public var SIG_IGN: sig_t { return unsafeBitCast(1, to: sig_t.self) }
++public var SIG_ERR: sig_t { return unsafeBitCast(-1, to: sig_t.self) }
++public var SIG_HOLD: sig_t { return unsafeBitCast(5, to: sig_t.self) }
++#elseif os(OpenBSD) || os(FreeBSD)
+ public var SIG_DFL: sig_t? { return nil }
+ public var SIG_IGN: sig_t { return unsafeBitCast(1, to: sig_t.self) }
+ public var SIG_ERR: sig_t { return unsafeBitCast(-1, to: sig_t.self) }
+@@ -313,7 +318,10 @@
+ 
+ /// The value returned by `sem_open()` in the case of failure.
+ public var SEM_FAILED: Semaphore? {
+-#if os(Linux) || os(FreeBSD) || os(OpenBSD) || os(PS4) || os(Android) || os(Cygwin) || os(Haiku) || os(WASI)
++#if os(macOS) || os(iOS) || os(watchOS) || os(tvOS) || os(visionOS)
++  // The value is ABI: <sys/semaphore.h>'s ((sem_t *)-1).
++  return Semaphore(bitPattern: -1)
++#elseif os(Linux) || os(FreeBSD) || os(OpenBSD) || os(PS4) || os(Android) || os(Cygwin) || os(Haiku) || os(WASI)
+   // The value is ABI.  Value verified to be correct on Glibc.
+   return Semaphore(bitPattern: 0)
+ #else

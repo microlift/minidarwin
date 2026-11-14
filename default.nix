@@ -480,6 +480,20 @@ lib.makeScope pkgs.newScope (self: with self; {
       then swiftx86Pkg
       else swiftPkgs.swiftPackages.swift;
   };
+  # The Swift libraries beside the runtime: the SDK their modules import
+  # through, the C library's overlays, string processing (Regex) and
+  # Foundation's Swift half.
+  swiftSdk = callPackage ./pkgs/swift/swift-sdk.nix {
+    toolchain = toolchainStage4;
+  };
+  mkSwiftLibrary = callPackage ./pkgs/swift/mk-swift-library.nix {
+    toolchain = toolchainStage4;
+  };
+  libswiftDarwin = callPackage ./pkgs/swift/libswift-darwin.nix { };
+  libswiftBuiltinFloat = libswiftDarwin.builtinFloat;
+  libswiftStringProcessing = callPackage ./pkgs/swift/libswift-string-processing.nix { };
+  libswiftRegexParser = libswiftStringProcessing.regexParser;
+  libswiftFoundation = callPackage ./pkgs/swift/libswift-foundation.nix { };
   swiftLinkTest = callPackage ./pkgs/swift/swift-link-test.nix {
     toolchain = toolchainStage4;
   };

@@ -46,6 +46,7 @@ nix build .#zip                   # zip, unzip and related utilities (stage 6)
 nix build .#icu .#libxml2         # ICU 76 Unicode data/libraries; libxml2 with ICU support (stage 6)
 nix build .#quickjs               # qjs, qjsc and the static JavaScript embedding library (stage 6)
 nix build .#libswiftCore .#checks.aarch64-darwin.swiftLinkTest  # Swift 6.3.3 runtime, /usr/lib/swift (stage 6)
+nix build .#libswiftDarwin .#libswiftStringProcessing .#libswiftFoundation  # Darwin overlay, Regex, Foundation's Swift half
 nix build .#openssl098            # OpenSSL 0.9.8 under /compat/OS X/10.7 (stage 6)
 nix build .#cross.x86_64.libstdcxx  # GCC 4.2.1 libstdc++ under /compat/OS X/10.8 (x86_64 only)
 nix build .#certPem               # /etc/ssl/cert.pem from security_certificates' roots (stage 6)
