@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <zlib.h>
@@ -302,11 +303,10 @@ Bytes inflate_limited(Bytes in, int window_bits, size_t expected,
 }
 
 Bytes digest(Bytes in, const char *algorithm) {
-  const EVP_MD *md = !strcmp(algorithm, "sha1")     ? EVP_sha1()
-                     : !strcmp(algorithm, "SHA1")   ? EVP_sha1()
-                     : !strcmp(algorithm, "md5")    ? EVP_md5()
-                     : !strcmp(algorithm, "sha256") ? EVP_sha256()
-                     : !strcmp(algorithm, "sha512") ? EVP_sha512()
+  const EVP_MD *md = !strcasecmp(algorithm, "sha1")     ? EVP_sha1()
+                     : !strcasecmp(algorithm, "md5")    ? EVP_md5()
+                     : !strcasecmp(algorithm, "sha256") ? EVP_sha256()
+                     : !strcasecmp(algorithm, "sha512") ? EVP_sha512()
                                                     : NULL;
   if (!md)
     die("unsupported checksum algorithm: %s", algorithm);
