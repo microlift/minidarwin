@@ -107,8 +107,8 @@ ROSEMARY_DARWIN_RELEASE=25.0.0 rosemary run /usr/bin/su root -c \
 requires.) The script creates the `macports` group and user with
 [`dseditgroup` and `dscl`](../dscl/README.md), copies the configuration
 files, adds `/opt/local/bin` to the installing user's shell profile, and runs
-`port selfupdate`. That last step fails, without failing the script, because
-MiniDarwin has no `/usr/bin/rsync`.
+`port selfupdate`, which syncs the ports tree with `/usr/bin/rsync`
+([openrsync](../rsync/rsync.nix), as on macOS).
 
 ## Installer JavaScript
 

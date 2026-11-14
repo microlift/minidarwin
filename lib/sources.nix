@@ -166,6 +166,9 @@ in
     "sha256-ILdL0s0MTK7Yo54ulVik4l0XbAXptF4NlElbP7z54CY=";
   IOStorageFamily = apple "IOStorageFamily" "IOStorageFamily-337.100.1"
     "sha256-whybjI8XIaihvo16oLq6xP5pNRPZeG7Jdy5jbyWqG1k=";
+  # openrsync as /usr/bin/rsync; samba rsync 2.6.9 here is test-only.
+  rsync = apple "rsync" "rsync-184"
+    "sha256-qYwF+o2w8EKkZFQ/SmdkvkjdbHKDep5DDoHYxsK3iK4=";
   awk = apple "awk" "awk-40"
     "sha256-QqBivftpeKxcEEwQEx+Fkh8H8JAC8E684H2YHWPzx5k=";
   file = apple "file" "file-106"

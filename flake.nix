@@ -82,6 +82,7 @@
             patchCmds
             networkCmds
             miscCmds
+            rsync
             awk
             file
             curl

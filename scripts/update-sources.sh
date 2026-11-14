@@ -225,6 +225,8 @@ if [ "$changed" = 1 ]; then
   gen_cmds system_cmds pkgs/system-cmds/system-cmds-sources.nix \
     ac accton arch dmesg getconf hostinfo login mkfile nologin pwd_mkdb sa sync sysctl \
     vm_stat wait4path zdump zic
+  gen_cmds rsync pkgs/rsync/rsync-sources.nix \
+    openrsync
   gen_cmds sudo pkgs/sudo/sudo-sources.nix \
     sudo visudo sudo_util sudoers parsesudoers sudo_eventlog sudo_iolog \
     logsrv protobuf-c

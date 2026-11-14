@@ -417,6 +417,11 @@ lib.makeScope pkgs.newScope (self: with self; {
     toolchain = toolchainStage3;
   };
 
+  # openrsync, as /usr/bin/rsync.
+  rsync = callPackage ./pkgs/rsync/rsync.nix {
+    toolchain = toolchainStage3;
+  };
+
   # Apple's file(1), including its magic rules.
   file = callPackage ./pkgs/file/file.nix {
     toolchain = toolchainStage3;
@@ -652,7 +657,7 @@ lib.makeScope pkgs.newScope (self: with self; {
     # Every hole labelled with these is now defined by the runtime tree...
     resolvedAbsences = [ "dyld" "corecrypto" "system_info" "system_m" "system_notify" ];
     # ...and of system_asl, only the syslog functions are.
-    resolvedSymbols = [ "_syslog$DARWIN_EXTSN" "_openlog" "_closelog" ];
+    resolvedSymbols = [ "_syslog$DARWIN_EXTSN" "_vsyslog" "_openlog" "_closelog" ];
   };
   dyldObjects = callPackage ./pkgs/dyld/dyld-objects.nix {
     toolchain = toolchainStage2;

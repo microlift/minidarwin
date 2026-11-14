@@ -1,7 +1,7 @@
 # Stage 7: assembled rootfs (closed set of Mach-Os + whole-tree checks).
 # Contains libSystem (+ members), libc++.1.dylib, libc++abi.dylib and stage 6:
 # the shell_cmds, file_cmds, text_cmds, adv_cmds, basic_cmds, system_cmds,
-# patch_cmds and misc_cmds tools, awk, file, curl, top, nano/pico, bash, Perl,
+# patch_cmds and misc_cmds tools, awk, file, curl, rsync, top, nano/pico, bash, Perl,
 # zsh, bzip2, zip/unzip and ncurses' own; the libraries they link (libedit, libncurses,
 # libutil, libsbuf, libmd, libz, libbz2, ICU, libxml2, libxo, libffi); QuickJS; the
 # Swift runtime (/usr/lib/swift/libswiftCore.dylib) with the Darwin overlay,
@@ -69,6 +69,7 @@
 , ncursesTools
 , su
 , sudo
+, rsync
 , installer
 , dscl
 , launchd
@@ -80,7 +81,7 @@
 
 let
   swiftLibraries = [ libswiftDarwin libswiftBuiltinFloat libswiftRegexParser libswiftStringProcessing libswiftFoundation ];
-  cmds = [ shellCmds fileCmds textCmds advCmds basicCmds systemCmds networkCmds patchCmds miscCmds awk file curl top nano bash darwinPerl zsh ncursesTools su sudo installer dscl quickjs sqlite launchd open ];
+  cmds = [ shellCmds fileCmds textCmds advCmds basicCmds systemCmds networkCmds patchCmds miscCmds awk file curl rsync top nano bash darwinPerl zsh ncursesTools su sudo installer dscl quickjs sqlite launchd open ];
   members = [ libSystem libsystemTree2 libcxxDylib libcxxabiDylib copyfile removefile ncurses ncursesPanel terminfo certPem files libedit libutil libsbuf libmd libffi libswiftCore zlib bzip2 libarchive zip icu libxml2 libxo libressl openssl098 libglu ] ++ swiftLibraries ++ cmds
     ++ lib.optional (libstdcxx != null) libstdcxx
     ++ lib.optional (runtimeDyld != null) runtimeDyld;
