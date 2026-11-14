@@ -307,6 +307,19 @@ class InstallerTests(unittest.TestCase):
         self.assertFalse((self.root / SCRIPTS_RESERVED).exists())
         self.live("-pkg", str(self.pkg), "-target", str(self.root), ok=False)
 
+    def test_live_scripts_see_the_installing_user(self):
+        files = component_files(self.entries, script=b"#!/bin/sh\nexit 0\n")
+        files["Scripts"] = gzip.compress(cpio([
+            ("./postinstall", stat.S_IFREG | 0o755,
+             b'#!/bin/sh\necho "$USER:$HOME" > "$DSTVOLUME/script-user"\n'),
+        ]))
+        self.pkg.write_bytes(xar(files))
+        self.run_cli("-pkg", str(self.pkg), "-target", str(self.root),
+                     env={"MDPKG_TEST_LIVE_ROOT": str(self.root),
+                          "USER": "installer", "HOME": "/var/installer"})
+        self.assertEqual((self.root / "script-user").read_text().strip(),
+                         "installer:/var/installer")
+
     def test_live_failure_removes_what_was_created(self):
         self.package(script=b"#!/bin/sh\nexit 9\n")
         self.live("-pkg", str(self.pkg), "-target", str(self.root), ok=False)

@@ -70,6 +70,7 @@
 , su
 , sudo
 , installer
+, dscl
 , launchd
 , open
 , runtimeDyld ? null
@@ -79,7 +80,7 @@
 
 let
   swiftLibraries = [ libswiftDarwin libswiftBuiltinFloat libswiftRegexParser libswiftStringProcessing libswiftFoundation ];
-  cmds = [ shellCmds fileCmds textCmds advCmds basicCmds systemCmds networkCmds patchCmds miscCmds awk file curl top nano bash darwinPerl zsh ncursesTools su sudo installer quickjs sqlite launchd open ];
+  cmds = [ shellCmds fileCmds textCmds advCmds basicCmds systemCmds networkCmds patchCmds miscCmds awk file curl top nano bash darwinPerl zsh ncursesTools su sudo installer dscl quickjs sqlite launchd open ];
   members = [ libSystem libsystemTree2 libcxxDylib libcxxabiDylib copyfile removefile ncurses ncursesPanel terminfo certPem files libedit libutil libsbuf libmd libffi libswiftCore zlib bzip2 libarchive zip icu libxml2 libxo libressl openssl098 libglu ] ++ swiftLibraries ++ cmds
     ++ lib.optional (libstdcxx != null) libstdcxx
     ++ lib.optional (runtimeDyld != null) runtimeDyld;

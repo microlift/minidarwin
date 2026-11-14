@@ -549,25 +549,28 @@ static void run_hook(Component *c, int hook, const char *runner,
     if (!runner) {
       /* No runner: the running root is the root, so the script runs as
        * Apple's installer runs it: itself, with a fixed environment, and
-       * PACKAGE TARGET VOLUME. */
-      char *env[7] = {0};
-      const char *const pairs[6][2] = {
+       * PACKAGE TARGET VOLUME. USER and HOME are the installing user's, as
+       * Apple's installer passes them; scripts set up that user's shell. */
+      const char *const pairs[][2] = {
           {"PATH", "/usr/bin:/bin:/usr/sbin:/sbin"},
           {"COMMAND_LINE_INSTALL", "1"},
           {"PACKAGE_PATH", package},
           {"DSTVOLUME", tx.root},
           {"DSTROOT", target},
-          {"INSTALLER_TEMP", workdir}};
-      for (int i = 0; i < 6; i++) {
+          {"INSTALLER_TEMP", workdir},
+          {"TMPDIR", workdir},
+          {"USER", getenv("USER")},
+          {"HOME", getenv("HOME")}};
+      enum { NPAIRS = sizeof pairs / sizeof pairs[0] };
+      char *envp[NPAIRS + 1] = {0};
+      size_t count = 0;
+      for (size_t i = 0; i < NPAIRS; i++) {
+        if (!pairs[i][1])
+          continue;
         size_t n = strlen(pairs[i][0]) + strlen(pairs[i][1]) + 2;
-        env[i] = xcalloc(n, 1);
-        snprintf(env[i], n, "%s=%s", pairs[i][0], pairs[i][1]);
+        envp[count] = xcalloc(n, 1);
+        snprintf(envp[count++], n, "%s=%s", pairs[i][0], pairs[i][1]);
       }
-      size_t tn = strlen(workdir) + 8;
-      char *tmp = xcalloc(tn, 1);
-      snprintf(tmp, tn, "TMPDIR=%s", workdir);
-      env[6] = tmp;
-      char *envp[8] = {env[0], env[1], env[2], env[3], env[4], env[5], env[6]};
       char *argv[] = {script, (char *)package, target, tx.root, NULL};
       if (chdir(workdir))
         _exit(126);

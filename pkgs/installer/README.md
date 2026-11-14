@@ -77,8 +77,8 @@ does not guess at either:
 - **`-skip-scripts`.** The `postinstall` creates the `macports` user with
   `/usr/bin/dscl` and `dseditgroup`, edits the installing user's shell profile
   through `su`, and then runs the just-installed `tclsh8.6` and `port
-  selfupdate` (network). None of that exists on MiniDarwin, and in an offline
-  root the script's absolute `/opt/local` and `/usr/bin` paths name the host's.
+  selfupdate` (network). In an offline root the script's absolute
+  `/opt/local` and `/usr/bin` paths name the host's.
   With the sandbox runner it fails at `dscl` and the install rolls back, which
   is the right outcome and the reason the option exists. `-skip-scripts`
   installs payloads and receipts only; each skipped script is named on stderr.
@@ -92,6 +92,23 @@ bare expression still does. `Warn` results, such as MacPorts' missing
 
 The payload is only installed, not run: MacPorts' binaries need a working dyld
 and, for its Tcl, libraries MiniDarwin has not built.
+
+### In the running root, under Rosemary
+
+In a Rosemary prefix built from this rootfs, the package installs into the
+running root with its `postinstall`, as root:
+
+```
+ROSEMARY_DARWIN_RELEASE=25.0.0 rosemary run /usr/bin/su root -c \
+  "/usr/bin/mdpkg -pkg /tmp/MacPorts-2.12.7-26-Tahoe.pkg -target /"
+```
+
+(`25.0.0` makes the prefix report macOS 26, which the Tahoe package
+requires.) The script creates the `macports` group and user with
+[`dseditgroup` and `dscl`](../dscl/README.md), copies the configuration
+files, adds `/opt/local/bin` to the installing user's shell profile, and runs
+`port selfupdate`. That last step fails, without failing the script, because
+MiniDarwin has no `/usr/bin/rsync`.
 
 ## Installer JavaScript
 
@@ -203,7 +220,8 @@ partial install with no receipt.
 
 Scripts are executed themselves, with `PATH=/usr/bin:/bin:/usr/sbin:/sbin`,
 `COMMAND_LINE_INSTALL`, `PACKAGE_PATH`, `DSTVOLUME` (`/`), `DSTROOT`,
-`INSTALLER_TEMP` and `TMPDIR`, and arguments `PACKAGE TARGET VOLUME`; they
+`INSTALLER_TEMP` and `TMPDIR`, the installing user's `USER` and `HOME` when
+mdpkg has them, and arguments `PACKAGE TARGET VOLUME`; they
 need their exec bit and a working interpreter in the system. MiniDarwin has
 no `/bin/sh` (its `sh` installs as `/usr/local/bin/ash`), so a `#!/bin/sh`
 script does not run there until one is provided. A `-script-runner` given

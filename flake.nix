@@ -155,7 +155,7 @@
       checks = forAllSystems (system: pkgs:
         let scope = nativeScope pkgs;
         in {
-          inherit (scope) sdkTest runtimesTest libsystemTest libdispatchTest cxxLinkTest swiftLinkTest libxml2Test libxoTest quickjsTest topTest archTest authTest releaseTest sdkLinkTest sdkReleaseTest installerTest launchdTest openTest bootDiskTest trustCacheTest dyldDigestsTest runtimeCryptoTest;
+          inherit (scope) sdkTest runtimesTest libsystemTest libdispatchTest cxxLinkTest swiftLinkTest libxml2Test libxoTest quickjsTest topTest archTest authTest releaseTest sdkLinkTest sdkReleaseTest installerTest dsclTest launchdTest openTest bootDiskTest trustCacheTest dyldDigestsTest runtimeCryptoTest;
           dyldTest = (scopeFor pkgs "x86_64").dyld;
           xnuClangTest = scope.xnuClang;
           kernelCryptoTest = scope.kernelCryptoTest;

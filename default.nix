@@ -561,6 +561,13 @@ lib.makeScope pkgs.newScope (self: with self; {
   };
   installerTest = callPackage ./pkgs/installer/installer-test.nix { };
 
+  # dscl and dseditgroup over the local node's dslocal records.
+  dscl = callPackage ./pkgs/dscl/dscl.nix {
+    toolchain = toolchainStage3;
+  };
+  dsclBootstrap = pkgs.callPackage ./pkgs/dscl/bootstrap.nix { };
+  dsclTest = callPackage ./pkgs/dscl/dscl-test.nix { };
+
   # Independent C++ init; host build is used only for isolated behavior tests.
   launchd = callPackage ./pkgs/launchd/launchd.nix {
     toolchain = toolchainStage4;
