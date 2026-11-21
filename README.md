@@ -40,6 +40,7 @@ nix build .#advCmds .#basicCmds    # ps, stty, tty, locale, ...; mesg, write (st
 nix build .#top                   # Apple process monitor and man page (stage 6)
 nix build .#systemCmds            # arch, machine, sync, sysctl, getconf, ... (stage 6)
 nix build .#patchCmds .#miscCmds .#awk  # diff, cmp, patch; cal, tsort, units; awk (stage 6)
+nix build .#cron .#crontabs          # cron, crontab; newsyslog, periodic and their /etc files (stage 6)
 nix build .#libressl              # primary TLS libraries and /usr/bin/openssl (stage 6)
 nix build .#curl                  # /usr/bin/curl and static libcurl, linked to LibreSSL (stage 6)
 nix build .#bzip2                 # libbz2, bzip2, bunzip2 and bzcat (stage 6)

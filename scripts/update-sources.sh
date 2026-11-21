@@ -202,6 +202,11 @@ if [ "$changed" = 1 ]; then
     mesg write
   gen_cmds misc_cmds pkgs/misc-cmds/misc-cmds-sources.nix \
     cal calendar ncal tsort units
+  gen_cmds cron pkgs/cron/cron-sources.nix \
+    cron crontab libcron
+  # periodic's wrapper is not built (pkgs/crontabs/crontabs.nix).
+  gen_cmds crontabs pkgs/crontabs/crontabs-sources.nix \
+    newsyslog
   gen_cmds network_cmds pkgs/network-cmds/network-cmds-sources.nix \
     ifconfig ping ping6 traceroute traceroute6
   # The library the network_cmds tools link: one target, a plain list.

@@ -417,6 +417,16 @@ lib.makeScope pkgs.newScope (self: with self; {
     toolchain = toolchainStage3;
   };
 
+  # /usr/sbin/cron and /usr/bin/crontab.
+  cron = callPackage ./pkgs/cron/cron.nix {
+    toolchain = toolchainStage3;
+  };
+
+  # newsyslog, periodic and their configuration.
+  crontabs = callPackage ./pkgs/crontabs/crontabs.nix {
+    toolchain = toolchainStage3;
+  };
+
   # /usr/bin/awk.
   awk = callPackage ./pkgs/awk/awk.nix {
     toolchain = toolchainStage3;

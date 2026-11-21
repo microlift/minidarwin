@@ -83,6 +83,8 @@
             patchCmds
             networkCmds
             miscCmds
+            cron
+            crontabs
             rsync
             awk
             file

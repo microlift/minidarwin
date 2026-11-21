@@ -1,0 +1,106 @@
+--- a/cron/cron.h
++++ b/cron/cron.h
+@@ -38,8 +38,10 @@
+ #include <pwd.h>
+ #ifdef __APPLE__
+ #include <grp.h>
++#if __has_include(<xpc/xpc.h>)
+ #include <xpc/xpc.h>
+ #endif
++#endif
+ #include <signal.h>
+ #include <stdio.h>
+ #include <time.h>
+@@ -228,7 +230,7 @@
+ 		log_it __P((char *, int, char *, char *)),
+ 		log_close __P((void));
+ 
+-#ifdef __APPLE__
++#if defined(__APPLE__) && __has_include(<CoreAnalytics/CoreAnalytics.h>)
+ static void report_jobs __P((xpc_object_t));
+ static xpc_object_t get_crontab_info __P((cron_db *));
+ #endif // __APPLE__
+--- a/cron/database.c	2026-11-19 17:17:13
++++ b/cron/database.c	2026-11-19 17:17:25
+@@ -26,7 +26,9 @@
+ 
+ #include "cron.h"
+ #ifdef __APPLE__
++#if __has_include(<CoreAnalytics/CoreAnalytics.h>)
+ #include <CoreAnalytics/CoreAnalytics.h>
++#endif
+ #include <libgen.h>
+ #include <string.h>
+ #endif // __APPLE__
+@@ -148,12 +150,12 @@
+ 	*old_db = new_db;
+ 	Debug(DLOAD, ("load_database is done\n"))
+ 
+-#ifdef __APPLE__
++#if defined(__APPLE__) && __has_include(<CoreAnalytics/CoreAnalytics.h>)
+ 	report_jobs(get_crontab_info(&new_db));
+ #endif
+ }
+ 
+-#ifdef __APPLE__
++#if defined(__APPLE__) && __has_include(<CoreAnalytics/CoreAnalytics.h>)
+ static void report_jobs(dict)
+ xpc_object_t dict;
+ {
+--- a/cron/do_command.c
++++ b/cron/do_command.c
+@@ -45,15 +45,17 @@
+ #include <CoreFoundation/CFData.h>
+ #include <CoreFoundation/CoreFoundation.h>
+ #include <mach/mach_init.h>        /* for bootstrap_port */
++#if __has_include(<bootstrap_priv.h>)
+ #include <vproc.h>
+ #include <vproc_priv.h>
+ #include <bootstrap_priv.h>
++#endif
+ #endif /* __APPLE__ */
+ 
+ static void		child_process __P((entry *, user *)),
+ 			do_univ __P((user *));
+ 
+-#ifdef __APPLE__
++#if defined(__APPLE__) && __has_include(<bootstrap_priv.h>)
+ extern vproc_err_t _vproc_post_fork_ping(void);
+ #endif
+ 
+@@ -319,6 +321,7 @@
+ 			}
+ 		}
+ 
++#if __has_include(<bootstrap_priv.h>)
+ 		/* move to the correct bootstrap */
+ 		/* similar to but simpler than pam_launchd */
+ 		mach_port_t puc = MACH_PORT_NULL;
+@@ -334,6 +337,7 @@
+ 			warnx("failed to setup exception ports");
+ 			_exit(ERROR_EXIT);
+ 		}
++#endif
+ #endif /* __APPLE__ */
+ # if defined(LOGIN_CAP)
+ 		/* Set user's entire context, but skip the environment
+--- a/cron/job.c
++++ b/cron/job.c
+@@ -23,7 +23,7 @@
+ 
+ #include "cron.h"
+ 
+-#ifdef __APPLE__
++#if defined(__APPLE__) && __has_include(<btm.h>)
+ #include <btm.h>
+ #include <os/feature_private.h>
+ #endif
+@@ -70,7 +70,7 @@
+ 	register int	run = 0;
+ 
+ 	for (j=jhead; j; j=jn) {
+-#ifdef __APPLE__
++#if defined(__APPLE__) && __has_include(<btm.h>)
+ 		if (os_feature_enabled(cronBTMToggle, cronBTMCheck)) {
+ 			bool cron_enabled = FALSE;
+ 			btm_error_code_t error = btm_get_enablement_status_for_subsystem_and_uid(btm_subsystem_cron, BTMGlobalDataUID, &cron_enabled);

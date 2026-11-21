@@ -1,7 +1,7 @@
 # Stage 7: assembled rootfs (closed set of Mach-Os + whole-tree checks).
 # Contains libSystem (+ members), libc++.1.dylib, libc++abi.dylib and stage 6:
 # the shell_cmds, file_cmds, text_cmds, adv_cmds, basic_cmds, system_cmds,
-# patch_cmds and misc_cmds tools, awk, file, curl, rsync, top, nano/pico, bash, Perl,
+# patch_cmds and misc_cmds tools, cron, newsyslog, awk, file, curl, rsync, top, nano/pico, bash, Perl,
 # zsh, bzip2, zip/unzip and ncurses' own; the libraries they link (libedit, libncurses,
 # libutil, libsbuf, libmd, libresolv, libz, libbz2, liblzma, ICU, libxml2, libxo, libffi); QuickJS; the
 # Swift runtime (/usr/lib/swift/libswiftCore.dylib) with the Darwin overlay,
@@ -39,6 +39,8 @@
 , patchCmds
 , networkCmds
 , miscCmds
+, cron
+, crontabs
 , awk
 , file
 , curl
@@ -84,7 +86,7 @@
 
 let
   swiftLibraries = [ libswiftDarwin libswiftBuiltinFloat libswiftRegexParser libswiftStringProcessing libswiftFoundation ];
-  cmds = [ shellCmds fileCmds textCmds advCmds basicCmds systemCmds networkCmds patchCmds miscCmds awk file curl rsync top nano bash darwinPerl zsh ncursesTools su sudo installer xcselect dscl quickjs sqlite launchd open ];
+  cmds = [ shellCmds fileCmds textCmds advCmds basicCmds systemCmds networkCmds patchCmds miscCmds cron crontabs awk file curl rsync top nano bash darwinPerl zsh ncursesTools su sudo installer xcselect dscl quickjs sqlite launchd open ];
   members = [ libSystem libsystemTree2 libcxxDylib libcxxabiDylib copyfile removefile ncurses ncursesPanel terminfo certPem files libedit libutil libsbuf libmd libresolv libffi libswiftCore zlib bzip2 liblzma libarchive zip icu libxml2 libxo libressl openssl098 libglu ] ++ swiftLibraries ++ cmds
     ++ lib.optional (libstdcxx != null) libstdcxx
     ++ lib.optional (runtimeDyld != null) runtimeDyld;
@@ -200,6 +202,11 @@ mkDarwinPackage {
     done
     for f in /sbin/launchd /bin/launchctl /usr/bin/open /usr/libexec/opend; do
       [ -x "$out$f" ] || { echo "rootfs: missing launchd file $f" >&2; exit 1; }
+    done
+    # cron's CRONDIR link must resolve to the spool cron installs.
+    for f in /usr/sbin/cron /usr/bin/crontab /usr/lib/cron/cron.deny /usr/lib/cron/tabs \
+      /usr/sbin/newsyslog /usr/sbin/periodic /private/etc/newsyslog.conf; do
+      [ -e "$out$f" ] || { echo "rootfs: missing cron file $f" >&2; exit 1; }
     done
     for f in /usr/bin/su /usr/bin/sudo /usr/bin/sudoedit /usr/sbin/visudo \
       /private/etc/pam.d/su /private/etc/pam.d/sudo /private/etc/sudoers; do

@@ -157,6 +157,10 @@ in
     "sha256-RQve2GqS9ke9hd8kupRMgoOKalTS229asi5tBGrBmS8=";
   misc_cmds = apple "misc_cmds" "misc_cmds-45"
     "sha256-04uBS16nNrg73Fqh4Obev7nQDjTTlY4f5+pEv3i0FIU=";
+  cron = apple "cron" "cron-52"
+    "sha256-x04uSvc+gvsDu4gCnwmmbStJUISEv4/o23LMMgMqGlo=";
+  crontabs = apple "crontabs" "crontabs-64.60.1"
+    "sha256-GEdfB1V6+ipkDDQGLf2STN+hfYhihQNoecdQwGMXtzA=";
   # Headers only, for network_cmds: libpcap is not built.
   libpcap = apple "libpcap" "libpcap-146"
     "sha256-imKN9h6AfSyjjOjp9AX68LNXybh/pitXDM35N/3/Tls=";
