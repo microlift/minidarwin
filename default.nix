@@ -353,6 +353,12 @@ lib.makeScope pkgs.newScope (self: with self; {
     toolchain = toolchainStage3;
   };
 
+  # libsystem_configuration.dylib: configd's client library, which libresolv
+  # asks for the DNS configuration. Standalone; see its header.
+  libsystemConfiguration = callPackage ./pkgs/configd/libsystem-configuration.nix {
+    toolchain = toolchainStage3;
+  };
+
   libsbuf = callPackage ./pkgs/compat/sbuf/libsbuf.nix {
     toolchain = toolchainStage3;
   };

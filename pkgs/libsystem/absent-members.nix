@@ -12,7 +12,7 @@
   system_trace = "closed source";
   system_sandbox = "closed source";
   system_coreservices = "closed source";
-  system_configuration = "closed source";
+  system_configuration = "packaged standalone (pkgs/configd); its libxpc is closed source";
   system_dnssd = "closed source";
   # Released but not buildable: Libm arm64 files are zero-byte; others need closed deps (opendirectory/xpc/etc.).
   system_m =

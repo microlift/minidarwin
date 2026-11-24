@@ -3,7 +3,7 @@
 # the shell_cmds, file_cmds, text_cmds, adv_cmds, basic_cmds, system_cmds,
 # patch_cmds and misc_cmds tools, cron, newsyslog, awk, file, curl, rsync, top, nano/pico, bash, Perl,
 # zsh, bzip2, zip/unzip and ncurses' own; the libraries they link (libedit, libncurses,
-# libutil, libsbuf, libmd, libresolv, libz, libbz2, liblzma, ICU, libxml2, libxo, libffi); QuickJS; the
+# libutil, libsbuf, libmd, libresolv, libsystem_configuration, libz, libbz2, liblzma, ICU, libxml2, libxo, libffi); QuickJS; the
 # Swift runtime (/usr/lib/swift/libswiftCore.dylib) with the Darwin overlay,
 # _StringProcessing and Foundation's Swift half beside it; Mesa's GLU; LibreSSL as primary TLS
 # and a complete OpenSSL 0.9.8 install under /compat/OS X/10.7 (on x86_64,
@@ -30,6 +30,7 @@
 , libutil
 , libsbuf
 , libresolv
+, libsystemConfiguration
 , fileCmds
 , libmd
 , textCmds
@@ -87,21 +88,24 @@
 let
   swiftLibraries = [ libswiftDarwin libswiftBuiltinFloat libswiftRegexParser libswiftStringProcessing libswiftFoundation ];
   cmds = [ shellCmds fileCmds textCmds advCmds basicCmds systemCmds networkCmds patchCmds miscCmds cron crontabs awk file curl rsync top nano bash darwinPerl zsh ncursesTools su sudo installer xcselect dscl quickjs sqlite launchd open ];
-  members = [ libSystem libsystemTree2 libcxxDylib libcxxabiDylib copyfile removefile ncurses ncursesPanel terminfo certPem files libedit libutil libsbuf libmd libresolv libffi libswiftCore zlib bzip2 liblzma libarchive zip icu libxml2 libxo libressl openssl098 libglu ] ++ swiftLibraries ++ cmds
+  members = [ libSystem libsystemTree2 libcxxDylib libcxxabiDylib copyfile removefile ncurses ncursesPanel terminfo certPem files libedit libutil libsbuf libmd libresolv libsystemConfiguration libffi libswiftCore zlib bzip2 liblzma libarchive zip icu libxml2 libxo libressl openssl098 libglu ] ++ swiftLibraries ++ cmds
     ++ lib.optional (libstdcxx != null) libstdcxx
     ++ lib.optional (runtimeDyld != null) runtimeDyld;
 
   # Union of passthru.allowUndefined from all members.
   declaredRaw =
     lib.foldl' (acc: p: acc // (p.allowUndefined or { })) { }
-      (lib.attrValues libsystemPass2 ++ [ libcxxDylib libcxxabiDylib copyfile removefile ncurses ncursesPanel libedit libutil libsbuf libmd libresolv libffi libswiftCore icu libxml2 libxo libressl openssl098 libglu bzip2 libarchive zip ] ++ swiftLibraries ++ cmds
+      (lib.attrValues libsystemPass2 ++ [ libcxxDylib libcxxabiDylib copyfile removefile ncurses ncursesPanel libedit libutil libsbuf libmd libresolv libsystemConfiguration libffi libswiftCore icu libxml2 libxo libressl openssl098 libglu bzip2 libarchive zip ] ++ swiftLibraries ++ cmds
         ++ lib.optional (libstdcxx != null) libstdcxx);
   # A runtime tree supplies these providers, or these symbols of a provider
   # it supplies only in part. The whole-tree import check below still
   # rejects any of them that the tree does not define.
   declared = lib.filterAttrs
-    (sym: provider: !(lib.elem provider resolvedAbsences || lib.elem sym resolvedSymbols))
+    (sym: provider: !(lib.elem provider (resolvedAbsences ++ memberAbsences) || lib.elem sym resolvedSymbols))
     declaredRaw;
+  # Providers absent from libSystem that a member of every tree defines
+  # standalone; their holes are resolved by flat lookup.
+  memberAbsences = [ "system_configuration" ];
 
   # Runtime-provided (dyld defines in loaded process, not in a library).
   runtimeProvided = [ "dyld_stub_binder" ];

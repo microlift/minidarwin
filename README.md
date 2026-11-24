@@ -36,6 +36,7 @@ nix build .#shellCmds             # date, env, find, id, mktemp, test, xargs, as
 nix build .#libutil .#fileCmds    # libutil.dylib; ls, cp, mv, rm, touch, readlink, ... (stage 6)
 nix build .#libmd .#textCmds      # libmd.dylib; cat, grep, sed, sort, head, tail, md5, ... (stage 6)
 nix build .#libresolv             # libresolv.9.dylib (BIND resolver, dns_*); what w and rsync link (stage 6)
+nix build .#libsystemConfiguration # libsystem_configuration.dylib, configd's DNS/network-state client over XPC (stage 6)
 nix build .#advCmds .#basicCmds    # ps, stty, tty, locale, ...; mesg, write (stage 6)
 nix build .#top                   # Apple process monitor and man page (stage 6)
 nix build .#systemCmds            # arch, machine, sync, sysctl, getconf, ... (stage 6)

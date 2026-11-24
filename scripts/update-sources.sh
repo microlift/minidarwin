@@ -148,6 +148,8 @@ if [ "$changed" = 1 ]; then
     libresolv pkgs/libresolv/libresolv-sources.nix
   gen_sources libffi libffi.xcodeproj/project.pbxproj \
     libffi pkgs/libffi/libffi-sources.nix
+  gen_sources configd configd.xcodeproj/project.pbxproj \
+    libsystem_configuration pkgs/configd/libsystem-configuration-sources.nix
   gen_sources OpenSSL098 openssl.xcodeproj/project.pbxproj \
     crypto.0.9.8 pkgs/openssl098/libcrypto-sources.nix
   gen_sources OpenSSL098 openssl.xcodeproj/project.pbxproj \
